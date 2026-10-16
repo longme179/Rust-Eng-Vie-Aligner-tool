@@ -1,0 +1,24 @@
+[package]
+name = "en-vi-align-rust"
+version = "2.3.0"
+edition = "2021"
+description = "Cánh đôi Anh–Việt — công cụ ghép đoạn văn bản Anh–Việt, chạy 100% cục bộ"
+license = "MIT"
+
+[[bin]]
+name = "canh-doi-anh-viet"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs", "signal", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", default-features = false, features = ["tls", "gzip", "json"] }
+unicode-normalization = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = true

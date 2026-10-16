@@ -1,0 +1,509 @@
+//! main.rs — Cánh đôi Anh–Việt (canh-doi-anh-viet) v2.3
+//! Web server 1-binary: giao diện + API, chạy 100% cục bộ.
+//! Bản 2.3: trích <li> khi tải URL + tô màu 3 mức + xuất CSV/HTML/XLIFF.
+
+mod aligner;
+mod embedder;
+mod exporter;
+mod fetcher;
+mod fold;
+mod lexicon;
+mod selftest;
+mod session;
+
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::http::{header, StatusCode};
+use axum::response::{Html, IntoResponse, Response};
+use axum::routing::{get, patch, post};
+use axum::{Json, Router};
+use serde::Deserialize;
+use serde_json::json;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::Arc;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+const INDEX_HTML: &str = include_str!("../static/index.html");
+const FAVICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="4" y="12" width="26" height="40" rx="6" fill="#0d9488"/><rect x="34" y="12" width="26" height="40" rx="6" fill="#d97706"/><path d="M22 32h20m0 0-6-6m6 6-6 6" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+
+struct AppState {
+    store: session::SessionStore,
+    started_at: u64,
+}
+
+type SharedState = Arc<AppState>;
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn ok_json(data: serde_json::Value) -> Response {
+    Json(json!({ "ok": true, "data": data })).into_response()
+}
+
+fn err_json(status: StatusCode, msg: &str) -> Response {
+    (status, Json(json!({ "ok": false, "error": msg }))).into_response()
+}
+
+// ========================= Handlers =========================
+
+async fn root() -> Html<&'static str> {
+    Html(INDEX_HTML)
+}
+
+async fn favicon() -> Response {
+    (
+        [(header::CONTENT_TYPE, "image/svg+xml")],
+        FAVICON_SVG,
+    )
+        .into_response()
+}
+
+async fn api_health() -> Response {
+    ok_json(json!({ "status": "ok", "time": now_ms() }))
+}
+
+async fn api_model_status(State(state): State<SharedState>) -> Response {
+    // Trạng thái LaBSE thật (đệm 30s phía embedder; không chặn runtime).
+    let labse_ready = tokio::task::spawn_blocking(embedder::labse_ready)
+        .await
+        .unwrap_or(false);
+    let engine = if labse_ready { "lexical+labse" } else { "lexical" };
+    let mode = if labse_ready {
+        "Từ vựng + LaBSE — chế độ chính xác cao"
+    } else {
+        "Từ vựng + số học + vị trí (offline — chưa bật LaBSE)"
+    };
+    ok_json(json!({
+        "engine": engine,
+        "mode": mode,
+        "ready": true,
+        "labse": {
+            "ready": labse_ready,
+            "url": embedder::labse_url(),
+        },
+        "version": env!("CARGO_PKG_VERSION"),
+        "uptimeSec": now_ms().saturating_sub(state.started_at) / 1000,
+        "sessions": state.store.count(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct AlignRequest {
+    #[serde(alias = "englishText", alias = "text_en", alias = "en")]
+    english_text: String,
+    #[serde(alias = "vietnameseText", alias = "text_vi", alias = "vi")]
+    vietnamese_text: String,
+    #[serde(alias = "autoThreshold", default)]
+    auto_threshold: Option<f64>,
+}
+
+async fn api_align(
+    State(state): State<SharedState>,
+    body: Result<Json<AlignRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let req = match body {
+        Ok(Json(r)) => r,
+        Err(e) => return err_json(StatusCode::BAD_REQUEST, &format!("Dữ liệu gửi lên không đúng: {}", e)),
+    };
+    // Chạy bộ ghép (CPU) ngoài runtime — và BẮT PANIC để server không bao giờ chết
+    // vì một bài văn lạ (đây là lớp phòng vệ 2, lớp 1 là aligner an toàn index).
+    // align_pipeline TỰ dùng LaBSE nếu dịch vụ đang chạy, fallback từ vựng nếu không.
+    let en_text = req.english_text.clone();
+    let vi_text = req.vietnamese_text.clone();
+    let opts = aligner::AlignOptions {
+        auto_threshold: req.auto_threshold.unwrap_or(0.30),
+    };
+    let t0 = Instant::now();
+    let result = tokio::task::spawn_blocking(move || {
+        catch_unwind(AssertUnwindSafe(|| {
+            embedder::align_pipeline(&en_text, &vi_text, &opts)
+        }))
+    })
+    .await;
+    let outcome = match result {
+        Ok(Ok(Ok(outcome))) => outcome,
+        Ok(Ok(Err(e))) => return err_json(StatusCode::BAD_REQUEST, &e.0),
+        Ok(Err(panic)) => {
+            let msg = panic
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| "lỗi không rõ".into());
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Bộ ghép gặp lỗi nội bộ (panic đã được bắt, server vẫn sống): {}", msg),
+            );
+        }
+        Err(_) => return err_json(StatusCode::INTERNAL_SERVER_ERROR, "Tác vụ ghép bị hủy."),
+    };
+    let embedder::PipelineOutcome {
+        output: aligned,
+        engine,
+        labse_error,
+        labse_ms,
+    } = outcome;
+
+    // PHIÊN MỚI cho MỖI lần ghép — không tái dùng trạng thái cũ (sửa lỗi bài thứ 2)
+    let title = session::derive_title(&aligned.english, &aligned.vietnamese);
+    let mut s = session::Session::from_align(
+        session::generate_id(),
+        title,
+        aligned.english,
+        aligned.vietnamese,
+        aligned.rows,
+        aligned.options,
+    );
+    s.engine = engine; // "lexical" hoặc "lexical+labse" — lưu kèm phiên
+    match state.store.create(&s) {
+        Ok(created) => {
+            println!(
+                "[canh-doi-anh-viet] ghép xong phiên {} ({} hàng, {} ms, động cơ {}, LaBSE {} ms)",
+                created.id,
+                created.rows.len(),
+                t0.elapsed().as_millis(),
+                created.engine,
+                labse_ms
+            );
+            let mut v = session_value(&created, true);
+            if let Some(e) = &labse_error {
+                v["labseError"] = json!(e); // thông báo fallback cho giao diện
+            }
+            ok_json(v)
+        }
+        Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được phiên: {}", e)),
+    }
+}
+
+/// Chuyển Session thành JSON (kèm rows + counts).
+fn session_value(s: &session::Session, with_text: bool) -> serde_json::Value {
+    let counts = s.counts();
+    let mut v = json!({
+        "id": s.id,
+        "title": s.title,
+        "createdAt": s.created_at,
+        "updatedAt": s.updated_at,
+        "counts": counts,
+        "options": { "autoThreshold": s.options.auto_threshold },
+        "engine": s.engine,
+        "rows": s.rows,
+    });
+    if with_text {
+        v["english"] = json!(s.english);
+        v["vietnamese"] = json!(s.vietnamese);
+    }
+    v
+}
+
+async fn api_sessions(State(state): State<SharedState>) -> Response {
+    let list: Vec<serde_json::Value> = state
+        .store
+        .list()
+        .iter()
+        .map(|s| {
+            json!({
+                "id": s.id,
+                "title": s.title,
+                "createdAt": s.created_at,
+                "updatedAt": s.updated_at,
+                "counts": s.counts(),
+            })
+        })
+        .collect();
+    ok_json(json!({ "sessions": list }))
+}
+
+async fn api_session_get(State(state): State<SharedState>, Path(id): Path<String>) -> Response {
+    match state.store.get(&id) {
+        Some(s) => ok_json(session_value(&s, true)),
+        None => err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên (có thể đã bị nhả/xoá)."),
+    }
+}
+
+async fn api_session_delete(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> Response {
+    if state.store.delete(&id) {
+        println!("[canh-doi-anh-viet] đã nhả phiên {}", id);
+        ok_json(json!({ "released": id }))
+    } else {
+        err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên để nhả.")
+    }
+}
+
+async fn api_sessions_delete_all(State(state): State<SharedState>) -> Response {
+    let n = state.store.delete_all();
+    println!("[canh-doi-anh-viet] đã nhả tất cả {} phiên", n);
+    ok_json(json!({ "releasedAll": n }))
+}
+
+#[derive(Deserialize)]
+struct RowStatusRequest {
+    #[serde(alias = "rowStatus")]
+    status: String,
+}
+
+async fn api_row_status(
+    State(state): State<SharedState>,
+    Path((id, index)): Path<(String, usize)>,
+    body: Result<Json<RowStatusRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let req = match body {
+        Ok(Json(r)) => r,
+        Err(e) => return err_json(StatusCode::BAD_REQUEST, &format!("Dữ liệu không đúng: {}", e)),
+    };
+    let status = match aligner::Status::parse(&req.status) {
+        Some(s) => s,
+        None => {
+            return err_json(
+                StatusCode::BAD_REQUEST,
+                "Trạng thái phải là một trong: auto_matched, needs_review, unmatched, human_confirmed.",
+            )
+        }
+    };
+    let mut s = match state.store.get(&id) {
+        Some(s) => s,
+        None => return err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên."),
+    };
+    if let Err(e) = s.set_row_status(index, status) {
+        return err_json(StatusCode::BAD_REQUEST, &e);
+    }
+    if let Err(e) = state.store.save(&s) {
+        return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được: {}", e));
+    }
+    ok_json(session_value(&s, false))
+}
+
+#[derive(Deserialize)]
+struct ExportRequest {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(default)]
+    format: Option<String>,
+}
+
+async fn api_export(
+    State(state): State<SharedState>,
+    body: Result<Json<ExportRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let req = match body {
+        Ok(Json(r)) => r,
+        Err(e) => return err_json(StatusCode::BAD_REQUEST, &format!("Dữ liệu không đúng: {}", e)),
+    };
+    let fmt = exporter::ExportFormat::parse(req.format.as_deref().unwrap_or("tsv"))
+        .unwrap_or(exporter::ExportFormat::Tsv);
+    let s = match state.store.get(&req.session_id) {
+        Some(s) => s,
+        None => return err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên để xuất."),
+    };
+    match exporter::export_session(&s, fmt) {
+        Ok(r) => {
+            println!(
+                "[canh-doi-anh-viet] xuất {} ({} hàng, {} 'none')",
+                r.filename, r.rows, r.none_count
+            );
+            (
+                StatusCode::OK,
+                [
+                    (header::CONTENT_TYPE, r.mime.clone()),
+                    (
+                        header::CONTENT_DISPOSITION,
+                        format!("attachment; filename=\"{}\"", r.filename),
+                    ),
+                    (header::HeaderName::from_static("x-rows"), r.rows.to_string()),
+                    (
+                        header::HeaderName::from_static("x-none-count"),
+                        r.none_count.to_string(),
+                    ),
+                    (
+                        header::HeaderName::from_static("x-session-id"),
+                        s.id.clone(),
+                    ),
+                ],
+                r.content,
+            )
+                .into_response()
+        }
+        Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
+#[derive(Deserialize)]
+struct FetchUrlRequest {
+    url: String,
+}
+
+async fn api_fetch_url(
+    body: Result<Json<FetchUrlRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let req = match body {
+        Ok(Json(r)) => r,
+        Err(e) => return err_json(StatusCode::BAD_REQUEST, &format!("Dữ liệu không đúng: {}", e)),
+    };
+    let url = req.url.clone();
+    let t0 = Instant::now();
+    let result = tokio::task::spawn_blocking(move || {
+        catch_unwind(AssertUnwindSafe(|| fetcher::fetch(&url)))
+    })
+    .await;
+    match result {
+        Ok(Ok(Ok(page))) => {
+            println!(
+                "[canh-doi-anh-viet] tải {} ({} đoạn, {} KB, {} ms)",
+                page.url,
+                page.paragraphs.len(),
+                page.bytes / 1024,
+                t0.elapsed().as_millis()
+            );
+            ok_json(json!({
+                "url": page.url,
+                "title": page.title,
+                "paragraphs": page.paragraphs,
+                "paragraphCount": page.paragraphs.len(),
+                "bytes": page.bytes,
+            }))
+        }
+        Ok(Ok(Err(e))) => err_json(StatusCode::BAD_GATEWAY, &e),
+        Ok(Err(panic)) => {
+            let msg = panic
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| "lỗi không rõ".into());
+            err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Lỗi nội bộ khi tải trang: {}", msg))
+        }
+        Err(_) => err_json(StatusCode::INTERNAL_SERVER_ERROR, "Tác vụ tải trang bị hủy."),
+    }
+}
+
+async fn api_selftest() -> Response {
+    let t0 = Instant::now();
+    let results = tokio::task::spawn_blocking(selftest::run_all).await.unwrap_or_default();
+    let total = results.len();
+    let passed = results.iter().filter(|r| r.passed).count();
+    let failed = total - passed;
+    println!(
+        "[canh-doi-anh-viet] selftest: {}/{} đạt ({} ms)",
+        passed,
+        total,
+        t0.elapsed().as_millis()
+    );
+    ok_json(json!({
+        "total": total,
+        "passed": passed,
+        "failed": failed,
+        "durationMs": t0.elapsed().as_millis() as u64,
+        "tests": results,
+    }))
+}
+
+#[derive(Deserialize, Default)]
+struct DebugQuery {
+    #[allow(dead_code)]
+    #[serde(default)]
+    _q: Option<String>,
+}
+
+async fn api_not_found(Query(_q): Query<DebugQuery>) -> Response {
+    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health.")
+}
+
+// ========================= Main =========================
+
+fn resolve_data_dir() -> std::path::PathBuf {
+    if let Ok(d) = std::env::var("CANH_DOI_DATA_DIR") {
+        if !d.trim().is_empty() {
+            return std::path::PathBuf::from(d);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let d = parent.join("data");
+            if std::fs::create_dir_all(&d).is_ok() {
+                return d;
+            }
+        }
+    }
+    let d = std::path::PathBuf::from("data");
+    let _ = std::fs::create_dir_all(&d);
+    d
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    println!("\n[canh-doi-anh-viet] đang dừng…");
+}
+
+#[tokio::main]
+async fn main() {
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.trim().parse().ok())
+        .unwrap_or(3000);
+
+    let data_dir = resolve_data_dir();
+    let sessions_dir = data_dir.join("sessions");
+    let store = session::SessionStore::open(sessions_dir);
+    let state = Arc::new(AppState { store, started_at: now_ms() });
+
+    let app = Router::new()
+        .route("/", get(root))
+        .route("/favicon.svg", get(favicon))
+        .route("/api/health", get(api_health))
+        .route("/api/model-status", get(api_model_status))
+        .route("/api/align", post(api_align))
+        .route("/api/sessions", get(api_sessions).delete(api_sessions_delete_all))
+        .route("/api/sessions/{id}", get(api_session_get).delete(api_session_delete))
+        .route("/api/sessions/{id}/rows/{index}", patch(api_row_status))
+        .route("/api/export", post(api_export))
+        .route("/api/fetch-url", post(api_fetch_url))
+        .route("/api/selftest", get(api_selftest))
+        .fallback(api_not_found)
+        .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
+        .with_state(state);
+
+    let addr = format!("0.0.0.0:{}", port);
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("[canh-doi-anh-viet] KHÔNG mở được cổng {}: {}", port, e);
+            eprintln!("[canh-doi-anh-viet] cổng có thể đang bận — thử: PORT=3001 ./canh-doi-anh-viet");
+            std::process::exit(1);
+        }
+    };
+
+    println!("[canh-doi-anh-viet] v{} — công cụ ghép đoạn văn bản Anh–Việt", env!("CARGO_PKG_VERSION"));
+    println!("[canh-doi-anh-viet] chạy tại http://localhost:{} (giao diện + API, tất cả cục bộ)", port);
+    println!("[canh-doi-anh-viet] thư mục dữ liệu: {}", data_dir.display());
+    println!("[canh-doi-anh-viet] LaBSE (tuỳ chọn): {} — chạy labse/labse_service.py để bật chế độ chính xác cao", embedder::labse_url());
+    println!("[canh-doi-anh-viet] nhấn Ctrl+C để dừng");
+
+    if let Err(e) = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+    {
+        eprintln!("[canh-doi-anh-viet] lỗi server: {}", e);
+        std::process::exit(1);
+    }
+    println!("[canh-doi-anh-viet] đã dừng hẳn.");
+}

@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cánh đôi Anh–Việt — Ghép đoạn văn bản</title>
+<meta name="description" content="Công cụ ghép đoạn văn bản Anh–Việt, chạy 100% cục bộ trên máy bạn.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root{
+    --bg:#f2f6f4; --surface:#ffffff; --surface2:#f8fafa; --border:#d9e4e0; --border2:#c3d4cf;
+    --text:#1c2b28; --muted:#5c6f6a; --faint:#8aa09a;
+    --teal:#0d9488; --teal-d:#0f766e; --teal-l:#ccfbf1; --teal-bg:#f0fdfa;
+    --amber:#b45309; --amber-l:#fef3c7; --amber-bg:#fffbeb;
+    --rose:#be123c; --rose-l:#ffe4e6; --rose-bg:#fff1f2;
+    --green:#047857; --green-l:#d1fae5; --green-bg:#ecfdf5;
+    --slate-l:#e7ecea;
+    --radius:14px; --radius-s:9px;
+    --shadow:0 1px 2px rgba(28,43,40,.05), 0 8px 24px -12px rgba(28,43,40,.18);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
+    font-size:15px; line-height:1.55; min-height:100vh; display:flex; flex-direction:column;
+  }
+  button{font:inherit; cursor:pointer}
+  input,textarea,select{font:inherit; color:inherit}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+
+  /* ============ Header ============ */
+  header.topbar{
+    position:sticky; top:0; z-index:50; background:rgba(255,255,255,.92); backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border); padding:10px 18px; display:flex; align-items:center; gap:14px;
+  }
+  .logo{display:flex; align-items:center; gap:11px; min-width:0}
+  .logo-mark{width:40px; height:40px; border-radius:11px; background:linear-gradient(135deg,#0d9488,#14b8a6); display:grid; place-items:center; box-shadow:var(--shadow); flex:none}
+  .logo-mark svg{width:24px;height:24px}
+  .logo-text{min-width:0}
+  .logo-text h1{margin:0; font-size:17px; letter-spacing:.2px; white-space:nowrap}
+  .logo-text p{margin:0; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .top-actions{margin-left:auto; display:flex; gap:8px; align-items:center}
+  .engine-badge{
+    display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--muted);
+    background:var(--surface2); border:1px solid var(--border); padding:5px 11px; border-radius:99px; white-space:nowrap;
+  }
+  .engine-badge .dot{width:8px;height:8px;border-radius:50%;background:var(--teal); box-shadow:0 0 0 3px var(--teal-l); animation:pulse 2.2s infinite}
+  .engine-badge span.etext{max-width:min(38vw,260px); overflow:hidden; text-overflow:ellipsis}
+  .engine-badge.on .dot{background:var(--teal); box-shadow:0 0 0 3px var(--teal-l)}
+  .engine-badge.off .dot{background:var(--amber); box-shadow:0 0 0 3px var(--amber-l); animation:none}
+  .engine-badge:hover{border-color:var(--border2)}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 3px var(--teal-l)}50%{box-shadow:0 0 0 6px rgba(204,251,241,.5)}}
+
+  .btn{
+    display:inline-flex; align-items:center; gap:7px; border-radius:10px; border:1px solid var(--border2);
+    background:var(--surface); color:var(--text); padding:8px 14px; font-weight:600; font-size:13.5px;
+    transition:all .15s ease; user-select:none; text-decoration:none;
+  }
+  .btn:hover{border-color:var(--teal); color:var(--teal-d); background:var(--teal-bg); transform:translateY(-1px)}
+  .btn:active{transform:translateY(0)}
+  .btn:focus-visible{outline:3px solid var(--teal-l); outline-offset:1px}
+  .btn.primary{background:var(--teal); border-color:var(--teal); color:#fff; box-shadow:var(--shadow)}
+  .btn.primary:hover{background:var(--teal-d); border-color:var(--teal-d); color:#fff}
+  .btn.danger{color:var(--rose)}
+  .btn.danger:hover{border-color:var(--rose); background:var(--rose-l); color:var(--rose)}
+  .btn.big{padding:11px 22px; font-size:15px; border-radius:12px}
+  .btn.ghost{background:transparent; border-color:transparent; color:var(--muted)}
+  .btn.ghost:hover{background:var(--surface2); border-color:var(--border)}
+  .btn[disabled]{opacity:.45; pointer-events:none}
+  .btn .spin{display:none}
+  .btn.busy .spin{display:inline-block; animation:rot 0.9s linear infinite}
+  .btn.busy .lbl{opacity:.7}
+  @keyframes rot{to{transform:rotate(360deg)}}
+
+  /* ============ Layout ============ */
+  main.wrap{flex:1; width:100%; max-width:1240px; margin:0 auto; padding:18px 18px 26px}
+  .actionbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px}
+  .actionbar .spacer{flex:1}
+  details.adv{font-size:13px; color:var(--muted)}
+  details.adv summary{cursor:pointer; padding:8px 12px; border-radius:9px; border:1px dashed var(--border2); user-select:none}
+  details.adv summary:hover{border-color:var(--teal); color:var(--teal-d)}
+  .adv-body{padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--surface); margin-top:8px; display:flex; flex-direction:column; gap:10px}
+  .adv-row{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+  .adv-row label{min-width:150px; font-weight:600; color:var(--text)}
+  .adv-row input[type=range]{flex:1; accent-color:var(--teal); min-width:150px}
+  .adv-row .val{font-family:var(--mono); font-size:12.5px; background:var(--surface2); border:1px solid var(--border); padding:3px 9px; border-radius:7px; min-width:44px; text-align:center}
+
+  .inputs{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px}
+  @media(max-width:900px){ .inputs{grid-template-columns:1fr} }
+
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
+  .lang{display:flex; flex-direction:column; overflow:hidden}
+  .lang-head{display:flex; align-items:center; gap:9px; padding:11px 14px; border-bottom:1px solid var(--border); background:var(--surface2); border-radius:var(--radius) var(--radius) 0 0}
+  .lang-head .flag{font-size:16px}
+  .lang-head .name{font-weight:700; font-size:14px}
+  .lang-head .count{margin-left:auto; font-size:12px; color:var(--muted); background:var(--surface); border:1px solid var(--border); padding:3px 10px; border-radius:99px; white-space:nowrap}
+  .lang-body{display:flex; flex-direction:column; flex:1}
+  .url-row{display:flex; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); background:var(--teal-bg)}
+  .lang.vi .url-row{background:var(--amber-bg)}
+  .url-row input{flex:1; border:1px solid var(--border2); border-radius:9px; padding:7px 11px; font-size:13px; background:#fff; min-width:0}
+  .url-row input:focus{outline:2px solid var(--teal-l); border-color:var(--teal)}
+  .url-row .btn{padding:7px 12px; font-size:12.5px; white-space:nowrap}
+  .url-err{display:none; padding:7px 13px; font-size:12.5px; color:var(--rose); background:var(--rose-l); border-bottom:1px solid var(--border)}
+  textarea.src{
+    flex:1; min-height:230px; resize:vertical; border:none; outline:none; padding:14px 15px;
+    font-size:14px; line-height:1.6; background:transparent; width:100%;
+  }
+  textarea.src:focus{background:#fdfffe}
+  textarea.src::placeholder{color:var(--faint)}
+  .lang-foot{display:flex; gap:8px; padding:8px 12px; border-top:1px solid var(--border)}
+  .lang-foot .btn{padding:4px 10px; font-size:12px}
+
+  /* ============ Results ============ */
+  .results{overflow:hidden}
+  .res-head{padding:13px 16px; border-bottom:1px solid var(--border); background:var(--surface2); border-radius:var(--radius) var(--radius) 0 0}
+  .res-title-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px}
+  .res-title-row h2{margin:0; font-size:15.5px}
+  .session-chip{font-family:var(--mono); font-size:11.5px; color:var(--muted); background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:2px 8px}
+  /* BẢN 2.3 — chú giải 3 màu theo quy ước người dùng:
+     xanh = khớp/khớp phần lớn · vàng = cần soát/khớp một phần · đỏ = không khớp hoàn toàn */
+  .legend{display:flex; gap:7px; flex-wrap:wrap; margin-bottom:10px}
+  .lg{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700; padding:3px 11px; border-radius:99px}
+  .lg::before{content:""; width:9px; height:9px; border-radius:3px; background:currentColor}
+  .lg-green{background:var(--green-l); color:var(--green)}
+  .lg-yellow{background:var(--amber-l); color:var(--amber)}
+  .lg-red{background:var(--rose-l); color:var(--rose)}
+  .chips{display:flex; gap:7px; flex-wrap:wrap}
+  .chip{
+    display:inline-flex; align-items:center; gap:6px; font-size:12.5px; padding:4px 12px; border-radius:99px;
+    border:1px solid var(--border); background:var(--surface); cursor:pointer; user-select:none; font-weight:600; color:var(--muted);
+    transition:all .13s;
+  }
+  .chip:hover{border-color:var(--border2); transform:translateY(-1px)}
+  .chip.active{background:var(--text); color:#fff; border-color:var(--text)}
+  .chip .n{font-family:var(--mono); font-weight:700}
+  .chip.c-auto.active{background:var(--green); border-color:var(--green)}
+  .chip.c-review.active{background:var(--amber); border-color:var(--amber)}
+  .chip.c-unmatch.active{background:var(--rose); border-color:var(--rose)}
+  .chip.c-human.active{background:var(--green); border-color:var(--green)}
+  .chip.c-auto .n{color:var(--teal-d)} .chip.c-review .n{color:var(--amber)}
+  .chip.c-unmatch .n{color:var(--rose)} .chip.c-human .n{color:var(--green)}
+  .chip.active .n{color:#fff}
+
+  .res-toolbar{display:flex; gap:9px; align-items:center; flex-wrap:wrap; padding:11px 16px; border-bottom:1px solid var(--border); background:var(--surface)}
+  .res-toolbar select{border:1px solid var(--border2); border-radius:9px; padding:8px 10px; background:#fff; font-size:13px}
+  .res-toolbar .spacer{flex:1}
+
+  .rows{max-height:min(66vh,820px); overflow-y:auto; overscroll-behavior:contain; padding:12px 14px; display:flex; flex-direction:column; gap:10px}
+  /* SỬA LỖI bản 2.1: .rows là flex-cột có max-height — các .row mặc định flex-shrink:1
+     nên khi nhiều hàng, mỗi hàng bị nén còn ~12–16px, chữ bị cắt hết (hàng “bí ngô” mỏng).
+     flex:none cho mọi con → hàng giữ chiều cao tự nhiên, khung cuộn dọc như dự kiến. */
+  .rows > *{flex:none}
+  .rows::-webkit-scrollbar{width:11px}
+  .rows::-webkit-scrollbar-thumb{background:var(--border2); border-radius:8px; border:3px solid var(--surface)}
+  .rows::-webkit-scrollbar-thumb:hover{background:var(--faint)}
+
+  .row{
+    display:grid; grid-template-columns:34px 1fr 196px 1fr; gap:0; border:1px solid var(--border);
+    border-radius:12px; background:var(--surface); overflow:hidden; transition:border-color .15s;
+  }
+  .row:hover{border-color:var(--border2)}
+  /* BẢN 2.3 — tô màu CẢ HÀNG (kéo nền qua 2 ô văn bản) theo quy ước 3 màu:
+     xanh = khớp/khớp phần lớn (auto_matched + human_confirmed)
+     vàng = cần soát/khớp một phần (needs_review)
+     đỏ  = không khớp hoàn toàn (unmatched) */
+  .row.st-auto{border-left:3px solid var(--green); background:linear-gradient(90deg,var(--green-bg) 0%,#ffffff 62%)}
+  .row.st-human{border-left:3px solid var(--green); background:linear-gradient(90deg,var(--green-bg) 0%,#ffffff 62%)}
+  .row.st-review{border-left:3px solid #d97706; background:linear-gradient(90deg,var(--amber-bg) 0%,#ffffff 62%)}
+  .row.st-unmatch{border-left:3px solid var(--rose); background:linear-gradient(90deg,var(--rose-bg) 0%,#ffffff 62%)}
+  .rownum{display:grid; place-items:center; font-family:var(--mono); font-size:12px; color:var(--faint); background:var(--surface2); border-right:1px solid var(--border)}
+  .cell{padding:11px 13px; min-width:0}
+  .cell .tag{
+    display:inline-block; font-size:10px; font-weight:800; letter-spacing:.8px; color:var(--faint);
+    margin-bottom:5px; font-family:var(--mono);
+  }
+  .cell .text{font-size:13.5px; line-height:1.62; overflow-wrap:break-word}
+  .cell.missing{background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 8px,#f4f8f6 8px,#f4f8f6 16px)}
+  .cell.missing .text{color:var(--faint); font-style:italic}
+  .cell.missing .text b{font-family:var(--mono); font-style:normal; color:var(--muted); background:var(--slate-l); border-radius:5px; padding:1px 7px; font-size:12px}
+  .mid{padding:10px 12px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; border-left:1px dashed var(--border); border-right:1px dashed var(--border); background:rgba(255,255,255,.5)}
+  .badge{font-size:11.5px; font-weight:700; padding:3px 11px; border-radius:99px; white-space:nowrap}
+  .badge.b-auto{background:var(--green-l); color:var(--green)}
+  .badge.b-review{background:var(--amber-l); color:var(--amber)}
+  .badge.b-unmatch{background:var(--rose-l); color:var(--rose)}
+  .badge.b-human{background:var(--green-l); color:var(--green)}
+  .meter{width:100%; height:5px; border-radius:4px; background:var(--slate-l); overflow:hidden}
+  .meter i{display:block; height:100%; border-radius:4px; background:linear-gradient(90deg,#14b8a6,#0d9488)}
+  .score{font-family:var(--mono); font-size:11px; color:var(--muted)}
+  /* BẢN 2.3 — đúng 3 nút đánh dấu (xanh/vàng/đỏ) thay cho 4 nút icon cũ */
+  .acts{display:flex; gap:5px; flex-direction:column; width:100%; margin-top:2px}
+  .mk{
+    border:1px solid var(--border2); background:var(--surface); border-radius:8px;
+    font-size:11.5px; font-weight:700; padding:6px 8px; width:100%; text-align:center;
+    color:var(--muted); transition:all .13s; white-space:nowrap; line-height:1.2;
+  }
+  .mk:hover{transform:translateY(-1px); filter:saturate(1.15)}
+  .mk:focus-visible{outline:3px solid var(--teal-l); outline-offset:1px}
+  .mk-green:hover{border-color:var(--green); color:var(--green); background:var(--green-l)}
+  .mk-yellow:hover{border-color:#d97706; color:var(--amber); background:var(--amber-l)}
+  .mk-red:hover{border-color:var(--rose); color:var(--rose); background:var(--rose-l)}
+  .mk.on{color:#fff; box-shadow:inset 0 1px 2px rgba(0,0,0,.12)}
+  .mk.on.mk-green{background:var(--green); border-color:var(--green)}
+  .mk.on.mk-yellow{background:#d97706; border-color:#d97706}
+  .mk.on.mk-red{background:var(--rose); border-color:var(--rose)}
+  .mk[disabled]{opacity:.38; pointer-events:none}
+  .hint-none{font-size:10.5px; color:var(--faint); text-align:center}
+
+  @media(max-width:760px){
+    /* Sửa bố cục mobile (bản 2.1 để .mid rơi vào cột 28px gây cắt nội dung):
+       [số thứ tự | đoạn EN] / [thanh giữa trải nguyên hàng] / [— | đoạn VI] */
+    .row{grid-template-columns:34px minmax(0,1fr)}
+    .cell.en{grid-column:2; border-bottom:1px dashed var(--border)}
+    .mid{grid-column:1 / -1; border-left:none; border-right:none; border-bottom:1px dashed var(--border); flex-direction:row; flex-wrap:wrap; justify-content:space-between; align-items:center}
+    .cell.vi{grid-column:2}
+    .meter{flex:1; min-width:50px}
+    .acts{flex-direction:row; width:auto}
+    .mk{width:auto; padding:6px 10px}
+  }
+
+  /* ---- mobile: header gọn, không tràn ngang ---- */
+  @media(max-width:860px){
+    header.topbar{flex-wrap:wrap; row-gap:8px; padding:9px 12px}
+    .logo{flex:1 1 100%;}
+    .logo-text p{max-width:calc(100vw - 72px)}
+    .top-actions{margin-left:0; width:100%; justify-content:flex-start; flex-wrap:wrap; gap:7px}
+    .engine-badge{max-width:100%; flex:1 1 100%; order:3}
+    .engine-badge span.etext{max-width:calc(100vw - 80px)}
+    main.wrap{padding:14px 12px 22px}
+    .actionbar .btn.big{flex:1 1 auto; justify-content:center}
+    .res-toolbar{gap:7px}
+    .rows{padding:10px 9px}
+  }
+
+  .empty{padding:54px 20px; text-align:center}
+  .empty .art{font-size:44px; margin-bottom:10px; filter:saturate(.85)}
+  .empty h3{margin:0 0 6px; font-size:16.5px}
+  .empty p{margin:0 auto; max-width:520px; color:var(--muted); font-size:13.5px}
+  .empty ol{text-align:left; max-width:430px; margin:14px auto 0; color:var(--muted); font-size:13px; padding-left:20px}
+  .empty ol li{margin:5px 0}
+
+  .showmore{margin:2px auto 8px; display:block}
+
+  /* ============ Footer ============ */
+  footer.statusbar{
+    position:sticky; bottom:0; z-index:40; margin-top:auto;
+    background:rgba(28,43,40,.96); color:#cfe4de; backdrop-filter:blur(8px);
+    padding:9px 18px; font-size:12.5px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;
+    padding-bottom:calc(9px + env(safe-area-inset-bottom));
+  }
+  footer .live{display:inline-flex; align-items:center; gap:7px}
+  footer .live .dot{width:8px;height:8px;border-radius:50%;background:#34d399; box-shadow:0 0 0 3px rgba(52,211,153,.25)}
+  footer .kbd{font-family:var(--mono); background:rgba(255,255,255,.12); border-radius:5px; padding:1px 7px; font-size:11px}
+  footer .right{margin-left:auto; display:flex; gap:14px; align-items:center; flex-wrap:wrap}
+  footer .right .btn{border-color:transparent; background:rgba(255,255,255,.1); color:#e6f4f0; padding:5px 12px; font-size:12px}
+  footer .right .btn:hover{background:rgba(255,255,255,.2); border-color:transparent; color:#fff}
+
+  /* ============ Drawer (sessions) ============ */
+  .drawer-veil{position:fixed; inset:0; background:rgba(28,43,40,.35); z-index:60; opacity:0; pointer-events:none; transition:opacity .22s}
+  .drawer-veil.show{opacity:1; pointer-events:auto}
+  .drawer{
+    position:fixed; top:0; right:0; bottom:0; width:min(430px,94vw); background:var(--surface); z-index:61;
+    box-shadow:-18px 0 48px -12px rgba(28,43,40,.3); transform:translateX(105%); transition:transform .26s ease;
+    display:flex; flex-direction:column;
+  }
+  .drawer.show{transform:translateX(0)}
+  .drawer-head{padding:15px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px}
+  .drawer-head h3{margin:0; font-size:15px}
+  .drawer-head .n{font-family:var(--mono); font-size:12px; color:var(--muted); background:var(--surface2); border:1px solid var(--border); padding:2px 9px; border-radius:99px}
+  .drawer-head .close{margin-left:auto}
+  .drawer-body{flex:1; overflow-y:auto; padding:13px 14px; display:flex; flex-direction:column; gap:10px}
+  .drawer-body::-webkit-scrollbar{width:10px}
+  .drawer-body::-webkit-scrollbar-thumb{background:var(--border2); border-radius:7px; border:3px solid var(--surface)}
+  .s-item{border:1px solid var(--border); border-radius:12px; padding:11px 13px; background:var(--surface)}
+  .s-item.current{border-color:var(--teal); background:var(--teal-bg)}
+  .s-item .t{font-weight:700; font-size:13.5px; margin-bottom:3px; overflow-wrap:anywhere}
+  .s-item .m{font-size:11.5px; color:var(--muted); font-family:var(--mono)}
+  .s-item .chips-mini{display:flex; gap:5px; flex-wrap:wrap; margin:7px 0 9px}
+  .mini{font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:99px}
+  .mini.m-auto{background:var(--green-l); color:var(--green)}
+  .mini.m-review{background:var(--amber-l); color:var(--amber)}
+  .mini.m-unmatch{background:var(--rose-l); color:var(--rose)}
+  .mini.m-human{background:var(--green-l); color:var(--green)}
+  .s-item .row-btns{display:flex; gap:7px}
+  .s-item .row-btns .btn{padding:5px 11px; font-size:12px}
+  .drawer-foot{padding:13px 16px; border-top:1px solid var(--border)}
+  .drawer-foot .note{font-size:11.5px; color:var(--faint); margin-top:9px; line-height:1.5}
+  .drawer-empty{text-align:center; color:var(--muted); font-size:13px; padding:40px 12px}
+
+  /* ============ Modal (selftest) ============ */
+  .modal-veil{position:fixed; inset:0; background:rgba(28,43,40,.45); z-index:70; display:none; place-items:center; padding:18px}
+  .modal-veil.show{display:grid}
+  .modal{width:min(680px,96vw); max-height:88vh; background:var(--surface); border-radius:16px; box-shadow:0 30px 80px -20px rgba(28,43,40,.4); display:flex; flex-direction:column; overflow:hidden}
+  .modal-head{padding:15px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px}
+  .modal-head h3{margin:0; font-size:15.5px}
+  .modal-body{overflow-y:auto; padding:13px 16px}
+  .st-summary{display:flex; gap:9px; flex-wrap:wrap; margin-bottom:12px}
+  .st-pill{font-size:12.5px; font-weight:700; padding:4px 13px; border-radius:99px}
+  .st-pill.pass{background:var(--green-l); color:var(--green)}
+  .st-pill.fail{background:var(--rose-l); color:var(--rose)}
+  .st-pill.ms{background:var(--slate-l); color:var(--muted); font-family:var(--mono); font-weight:600}
+  .st-item{display:flex; gap:10px; padding:9px 12px; border:1px solid var(--border); border-radius:10px; margin-bottom:7px; font-size:13px; align-items:flex-start}
+  .st-item.pass{background:var(--teal-bg)}
+  .st-item.fail{background:var(--rose-l); border-color:#fecdd3}
+  .st-item .mark{font-weight:900; font-family:var(--mono); flex:none}
+  .st-item.pass .mark{color:var(--green)} .st-item.fail .mark{color:var(--rose)}
+  .st-item .nm{font-weight:600}
+  .st-item .dt{color:var(--rose); font-size:12px; margin-top:3px; overflow-wrap:anywhere}
+  .st-item .ms{margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--faint); flex:none}
+  .modal-foot{padding:12px 18px; border-top:1px solid var(--border); display:flex; gap:9px}
+
+  /* ============ Toasts ============ */
+  .toasts{position:fixed; top:66px; right:18px; z-index:90; display:flex; flex-direction:column; gap:9px; max-width:min(400px,92vw)}
+  .toast{
+    background:#1c2b28; color:#eef7f4; padding:11px 15px; border-radius:12px; font-size:13px; line-height:1.5;
+    box-shadow:0 12px 34px -10px rgba(28,43,40,.5); display:flex; gap:10px; align-items:flex-start;
+    animation:tin .25s ease; border-left:4px solid var(--teal);
+  }
+  .toast.err{border-left-color:var(--rose)}
+  .toast.warn{border-left-color:#f59e0b}
+  .toast.ok{border-left-color:#34d399}
+  .toast .ico{flex:none; font-size:14px; margin-top:1px}
+  @keyframes tin{from{opacity:0; transform:translateX(14px)}to{opacity:1; transform:none}}
+  .toast.out{opacity:0; transform:translateX(14px); transition:all .3s}
+
+  /* ============ Busy overlay ============ */
+  .busy{position:fixed; inset:0; z-index:80; background:rgba(242,246,244,.72); backdrop-filter:blur(3px); display:none; place-items:center}
+  .busy.show{display:grid}
+  .busy .box{background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:26px 34px; text-align:center; box-shadow:var(--shadow)}
+  .busy .ring{width:42px; height:42px; margin:0 auto 12px; border-radius:50%; border:4px solid var(--teal-l); border-top-color:var(--teal); animation:rot .8s linear infinite}
+  .busy .t{font-weight:700}
+  .busy .s{font-size:12.5px; color:var(--muted); margin-top:3px}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo">
+    <div class="logo-mark" aria-hidden="true">
+      <svg viewBox="0 0 64 64" fill="none"><rect x="6" y="14" width="24" height="36" rx="5" fill="#fff" opacity=".92"/><rect x="34" y="14" width="24" height="36" rx="5" fill="#fde68a"/><path d="M24 32h16m0 0-5-5m5 5-5 5" stroke="#0d9488" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="logo-text">
+      <h1>Cánh đôi Anh–Việt</h1>
+      <p>Ghép đoạn văn bản song ngữ — 100% cục bộ, không gửi dữ liệu đi đâu</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <button class="engine-badge" id="engineBadge" type="button" title="Động cơ ghép — nhấn để xem cách bật LaBSE (chế độ chính xác cao)"><span class="dot" aria-hidden="true"></span><span id="engineText" class="etext">đang kiểm tra…</span></button>
+    <button class="btn" id="btnSelftest" title="Chạy 21 bài tự kiểm nội bộ">🧪 Tự kiểm tra</button>
+    <button class="btn" id="btnDrawer" title="Danh sách các phiên đã lưu">📂 Các phiên <span class="n" id="drawerCount" style="font-family:var(--mono)"></span></button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="actionbar">
+    <button class="btn primary big" id="btnAlign"><span class="spin">↻</span><span class="lbl">⚡ Ghép đoạn</span></button>
+    <button class="btn big" id="btnNew" title="Nhả kết quả hiện tại và bắt đầu phiên trống mới (giữ lại văn bản để chỉnh)">✨ Phiên mới</button>
+    <div class="spacer"></div>
+    <details class="adv" id="advBox">
+      <summary>⚙ Nâng cao</summary>
+      <div class="adv-body">
+        <div class="adv-row">
+          <label for="thrAuto">Ngưỡng tự khớp</label>
+          <input type="range" id="thrAuto" min="0.05" max="0.8" step="0.01" value="0.30">
+          <span class="val" id="thrAutoVal">0.30</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted)">Cặp có điểm tương đồng ≥ ngưỡng được đánh dấu <b style="color:var(--teal-d)">Tự khớp</b>; dưới ngưỡng là <b style="color:var(--amber)">Cần soát</b>. Hạ ngưỡng nếu bài khó (ít số, ít tên riêng).</div>
+      </div>
+    </details>
+  </div>
+
+  <section class="inputs" aria-label="Văn bản đầu vào">
+    <article class="card lang en">
+      <div class="lang-head">
+        <span class="flag" aria-hidden="true">🇬🇧</span>
+        <span class="name">Tiếng Anh</span>
+        <span class="count" id="enCount">0 đoạn</span>
+      </div>
+      <div class="url-row">
+        <input id="enUrl" type="url" placeholder="https://… (link bài tiếng Anh — tải thẳng vào ô bên dưới)" aria-label="URL bài tiếng Anh">
+        <button class="btn" id="enFetchBtn" title="Tải bài từ URL">⬇ Tải</button>
+      </div>
+      <div class="url-err" id="enUrlErr"></div>
+      <textarea class="src" id="enText" spellcheck="false" placeholder="Dán bài tiếng Anh vào đây.&#10;Mỗi đoạn cách nhau một dòng trống (nếu bài viết liền dòng thì mỗi dòng tính là một đoạn)."></textarea>
+      <div class="lang-foot">
+        <button class="btn ghost" id="enClear">✕ Xoá ô</button>
+        <button class="btn ghost" id="enSample" title="Điền bài mẫu để thử">📄 Bài mẫu</button>
+      </div>
+    </article>
+
+    <article class="card lang vi">
+      <div class="lang-head">
+        <span class="flag" aria-hidden="true">🇻🇳</span>
+        <span class="name">Tiếng Việt</span>
+        <span class="count" id="viCount">0 đoạn</span>
+      </div>
+      <div class="url-row">
+        <input id="viUrl" type="url" placeholder="https://… (link bài tiếng Việt)" aria-label="URL bài tiếng Việt">
+        <button class="btn" id="viFetchBtn" title="Tải bài từ URL">⬇ Tải</button>
+      </div>
+      <div class="url-err" id="viUrlErr"></div>
+      <textarea class="src" id="viText" spellcheck="false" placeholder="Dán bài tiếng Việt vào đây.&#10;Mỗi đoạn cách nhau một dòng trống (nếu bài viết liền dòng thì mỗi dòng tính là một đoạn)."></textarea>
+      <div class="lang-foot">
+        <button class="btn ghost" id="viClear">✕ Xoá ô</button>
+        <button class="btn ghost" id="viSample" title="Điền bài mẫu (bản dịch thiếu 1 đoạn) để thử">📄 Bài mẫu</button>
+      </div>
+    </article>
+  </section>
+
+  <section class="card results" id="resultsCard" aria-label="Kết quả ghép">
+    <div class="res-head">
+      <div class="res-title-row">
+        <h2>🔎 Kết quả ghép</h2>
+        <span class="session-chip" id="sessionChip" style="display:none"></span>
+        <span style="flex:1"></span>
+        <span style="font-size:12px;color:var(--muted)">Đánh dấu từng cặp bằng 3 nút màu trên mỗi hàng, rồi xuất file</span>
+      </div>
+      <div class="legend" aria-label="Chú giải màu">
+        <span class="lg lg-green">Khớp / khớp phần lớn</span>
+        <span class="lg lg-yellow">Cần soát / khớp một phần</span>
+        <span class="lg lg-red">Không khớp hoàn toàn</span>
+      </div>
+      <div class="chips" id="chips">
+        <button class="chip active" data-f="all">Tổng <span class="n">0</span></button>
+        <button class="chip c-auto" data-f="auto_matched">Tự khớp <span class="n">0</span></button>
+        <button class="chip c-review" data-f="needs_review">Cần soát <span class="n">0</span></button>
+        <button class="chip c-unmatch" data-f="unmatched">Không khớp <span class="n">0</span></button>
+        <button class="chip c-human" data-f="human_confirmed">Đã xác nhận <span class="n">0</span></button>
+      </div>
+    </div>
+    <div class="res-toolbar" id="resToolbar" style="display:none">
+      <label for="fmtSelect" style="font-size:13px;color:var(--muted)">Định dạng:</label>
+      <select id="fmtSelect" aria-label="Định dạng xuất">
+        <option value="tsv">TSV — hai cột ngăn tab</option>
+        <option value="moses">Moses — “văn bản ||| văn bản”</option>
+        <option value="json">JSON — đầy đủ trạng thái</option>
+        <option value="csv">CSV — mở được bằng Excel</option>
+        <option value="html">HTML — bảng đối chiếu có màu</option>
+        <option value="xliff">XLIFF 1.2 — cho công cụ dịch (CAT)</option>
+      </select>
+      <button class="btn primary" id="btnExport"><span class="spin">↻</span><span class="lbl">⬇ Xuất file</span></button>
+      <div class="spacer"></div>
+      <button class="btn danger" id="btnRelease" title="Xoá phiên này khỏi máy (nhả phiên)">🗑 Nhả phiên này</button>
+    </div>
+    <div class="rows" id="rowsList" style="display:none"></div>
+    <div class="empty" id="emptyState">
+      <div class="art" aria-hidden="true">🪁</div>
+      <h3>Chưa có kết quả</h3>
+      <p>Dán (hoặc tải từ URL) bài tiếng Anh và bài tiếng Việt rồi nhấn <b>Ghép đoạn</b>. Công cụ sẽ đi tìm cặp đoạn tương ứng của hai bài.</p>
+      <ol>
+        <li>Dán văn bản vào hai ô phía trên — hoặc nhấn <b>Bài mẫu</b> để thử ngay.</li>
+        <li>Nhấn <b>⚡ Ghép đoạn</b> (hoặc <b>Ctrl+Enter</b>).</li>
+        <li>Kiểm tra các cặp <b style="color:var(--amber)">Cần soát</b>, xác nhận hoặc bỏ ghép từng hàng.</li>
+        <li>Nhấn <b>⬇ Xuất file</b> — đoạn thiếu một phía sẽ ghi đúng chữ <code style="font-family:var(--mono)">none</code>.</li>
+      </ol>
+    </div>
+  </section>
+</main>
+
+<footer class="statusbar">
+  <span class="live"><span class="dot"></span> Hoạt động cục bộ 100%</span>
+  <span id="portInfo">cổng 3000</span>
+  <span title="Bản 2.3 — trích mục danh sách <li> khi tải URL + tô màu 3 mức (xanh/vàng/đỏ) + xuất CSV/HTML/XLIFF">bản 2.3</span>
+  <span>phiên: <span id="curSession">—</span></span>
+  <span class="right">
+    <span><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> ghép nhanh</span>
+    <button class="btn" id="btnNewFooter">✨ Phiên mới</button>
+  </span>
+</footer>
+
+<!-- Drawer phiên -->
+<div class="drawer-veil" id="drawerVeil"></div>
+<aside class="drawer" id="drawer" aria-label="Các phiên đã lưu">
+  <div class="drawer-head">
+    <h3>📂 Các phiên đã lưu</h3>
+    <span class="n" id="drawerCount2">0</span>
+    <button class="btn ghost close" id="drawerClose" aria-label="Đóng">✕</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+  <div class="drawer-foot">
+    <button class="btn danger" id="btnReleaseAll" style="width:100%">🗑 Nhả tất cả phiên</button>
+    <p class="note">“Mở” đưa phiên trở lại màn hình (kèm văn bản gốc để ghép lại). “Nhả” xoá vĩnh viễn phiên khỏi máy. Mỗi lần ghép luôn tạo một phiên mới — phiên cũ không bao giờ làm bẩn bài mới.</p>
+  </div>
+</aside>
+
+<!-- Modal selftest -->
+<div class="modal-veil" id="stModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="stTitle">
+    <div class="modal-head">
+      <h3 id="stTitle">🧪 Tự kiểm tra hệ thống</h3>
+      <span style="flex:1"></span>
+      <button class="btn ghost" id="stClose" aria-label="Đóng">✕</button>
+    </div>
+    <div class="modal-body" id="stBody"><p style="color:var(--muted)">Đang chạy…</p></div>
+    <div class="modal-foot">
+      <button class="btn primary" id="stRerun">↻ Chạy lại</button>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:var(--muted)">Bộ kiểm chạy cục bộ, không cần mạng</span>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<div class="busy" id="busy">
+  <div class="box">
+    <div class="ring"></div>
+    <div class="t" id="busyT">Đang ghép đoạn…</div>
+    <div class="s" id="busyS">Chấm điểm từng cặp đoạn theo từ vựng, số liệu và vị trí</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= Trạng thái ================= */
+const S = {
+  current: null,      // phiên đang xem (đầy đủ)
+  sessions: [],       // danh sách nhẹ
+  filter: "all",
+  format: "tsv",
+  busy: false,
+  labseReady: false,  // LaBSE service có đang chạy không (từ /api/model-status)
+};
+
+const $ = (id) => document.getElementById(id);
+const STATUS_META = {
+  auto_matched:    { vi: "Tự khớp",    cls: "auto",   badge: "b-auto" },
+  needs_review:    { vi: "Cần soát",   cls: "review", badge: "b-review" },
+  unmatched:       { vi: "Không khớp", cls: "unmatch",badge: "b-unmatch" },
+  human_confirmed: { vi: "Đã xác nhận",cls: "human",  badge: "b-human" },
+};
+
+/* ================= Tiện ích ================= */
+function esc(s){
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function fmtTime(ms){
+  try { return new Date(ms).toLocaleString("vi-VN", { hour:"2-digit", minute:"2-digit", day:"2-digit", month:"2-digit", year:"numeric" }); }
+  catch { return new Date(ms).toLocaleString(); }
+}
+function toast(msg, type, ms){
+  const el = document.createElement("div");
+  el.className = "toast " + (type || "");
+  const ico = type === "err" ? "⚠" : type === "warn" ? "⚠" : type === "ok" ? "✓" : "ℹ";
+  el.innerHTML = `<span class="ico">${ico}</span><span>${esc(msg)}</span>`;
+  $("toasts").appendChild(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 350); }, ms || 4200);
+}
+function busy(on, title, sub){
+  S.busy = on;
+  $("busy").classList.toggle("show", on);
+  if (title) $("busyT").textContent = title;
+  if (sub !== undefined) $("busyS").textContent = sub;
+  syncAlignBtn();
+}
+/* Cập nhật huy hiệu động cơ (badge) theo trạng thái LaBSE thật từ server. */
+function updateEngineBadge(st){
+  S.labseReady = !!(st && st.labse && st.labse.ready);
+  const badge = $("engineBadge"), txt = $("engineText");
+  badge.classList.toggle("on", S.labseReady);
+  badge.classList.toggle("off", !S.labseReady);
+  if (S.labseReady){
+    txt.textContent = "Từ vựng + LaBSE — chính xác cao";
+    badge.title = "LaBSE đang chạy tại " + ((st.labse && st.labse.url) || "127.0.0.1:3031") + " — bộ ghép đang dùng kèm LaBSE.";
+  } else {
+    txt.textContent = "Chỉ từ vựng — chưa bật LaBSE";
+    badge.title = "Chưa có LaBSE — bộ ghép đang chỉ dùng từ vựng. Chạy file “build-and-run-…”. trong thư mục mã nguồn để tự build và bật LaBSE — chế độ chính xác cao hơn. Xem README.md mục LaBSE.";
+  }
+}
+async function api(path, opts){
+  const res = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+  let j = null;
+  try { j = await res.json(); } catch {}
+  if (!res.ok || !j || j.ok === false){
+    throw new Error((j && j.error) ? j.error : `Lỗi HTTP ${res.status}`);
+  }
+  return j.data;
+}
+
+/* ================= Tách đoạn (mirror phía server) ================= */
+function splitParas(text){
+  const norm = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  let parts = norm.split(/\n[ \t]*\n+/).map(p => p.trim()).filter(Boolean);
+  parts = parts.map(p => p.split("\n").map(l => l.trim()).filter(Boolean).join(" "));
+  if (parts.length <= 1 && norm.includes("\n")){
+    const lines = norm.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length > 1) parts = lines;
+  }
+  return parts;
+}
+function syncAlignBtn(){
+  // Một nguồn sự thật duy nhất cho trạng thái nút “⚡ Ghép đoạn”:
+  // bị khoá khi đang bận HOẶC khi cả hai ô văn bản đều rỗng.
+  // Mọi đường dẫn (busy bật/tắt, refreshCounts, tải URL…) đều đi qua đây,
+  // nên nút không bao giờ bị “kẹt” ở trạng thái cũ sau bất kỳ thao tác nào.
+  const en = splitParas($("enText").value).length;
+  const vi = splitParas($("viText").value).length;
+  $("btnAlign").disabled = S.busy || (en + vi === 0);
+}
+function refreshCounts(){
+  const en = splitParas($("enText").value).length;
+  const vi = splitParas($("viText").value).length;
+  $("enCount").textContent = `${en} đoạn`;
+  $("viCount").textContent = `${vi} đoạn`;
+  syncAlignBtn();
+}
+
+/* ================= Ghép ================= */
+async function doAlign(){
+  if (S.busy) return;
+  const enText = $("enText").value, viText = $("viText").value;
+  const enN = splitParas(enText).length, viN = splitParas(viText).length;
+  if (enN + viN === 0){ toast("Chưa có văn bản nào — dán ít nhất một bên nhé.", "warn"); return; }
+  if (enN === 0 || viN === 0){
+    toast(`Đang ghép một phía (EN ${enN} / VI ${viN} đoạn) — mọi đoạn sẽ thành “Không khớp”.`, "warn", 5200);
+  }
+  const btn = $("btnAlign");
+  btn.classList.add("busy");
+  busy(true, "Đang ghép đoạn…", `${enN} đoạn tiếng Anh × ${viN} đoạn tiếng Việt${S.labseReady ? " · dùng kèm LaBSE" : ""}`);
+  try {
+    const data = await api("/api/align", {
+      method: "POST",
+      body: JSON.stringify({
+        englishText: enText,
+        vietnameseText: viText,
+        autoThreshold: parseFloat($("thrAuto").value) || 0.30,
+      }),
+    });
+    S.current = data;
+    S.filter = "all";
+    if (data.engine && String(data.engine).indexOf("labse") !== -1) S.labseReady = true;
+    if (data.labseError) toast("LaBSE gặp lỗi — tạm ghép bằng bộ từ vựng: " + data.labseError, "warn", 9000);
+    render();
+    await refreshSessions();
+    const c = data.counts;
+    toast(`Ghép xong phiên mới: ${c.auto_matched} tự khớp, ${c.needs_review} cần soát, ${c.unmatched} không khớp.`, "ok", 5200);
+    $("resultsCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e){
+    toast("Không ghép được: " + e.message, "err", 8000);
+  } finally {
+    busy(false);
+    btn.classList.remove("busy");
+  }
+}
+
+/* ================= Render phiên ================= */
+function render(){
+  const cur = S.current;
+  const has = !!cur;
+  $("emptyState").style.display = has ? "none" : "";
+  $("rowsList").style.display = has ? "" : "none";
+  $("resToolbar").style.display = has ? "" : "none";
+  $("sessionChip").style.display = has ? "" : "none";
+  $("curSession").textContent = has ? cur.id : "—";
+  if (!has){ renderChips(null); return; }
+  $("sessionChip").textContent = `phiên ${cur.id} · ${fmtTime(cur.createdAt)}${(cur.engine && String(cur.engine).indexOf("labse") !== -1) ? " · LaBSE" : ""}`;
+  renderChips(cur.counts);
+  renderRows();
+}
+function renderChips(c){
+  const vals = c ? { all: c.total, auto_matched: c.auto_matched, needs_review: c.needs_review, unmatched: c.unmatched, human_confirmed: c.human_confirmed } : { all: 0, auto_matched: 0, needs_review: 0, unmatched: 0, human_confirmed: 0 };
+  document.querySelectorAll("#chips .chip").forEach(ch => {
+    const f = ch.dataset.f;
+    ch.querySelector(".n").textContent = vals[f] ?? 0;
+    ch.classList.toggle("active", S.filter === f);
+  });
+}
+function filteredRows(){
+  if (!S.current) return [];
+  if (S.filter === "all") return S.current.rows;
+  return S.current.rows.filter(r => r.status === S.filter);
+}
+const RENDER_CAP_DEFAULT = 400;
+let renderCap = RENDER_CAP_DEFAULT;
+function renderRows(){
+  const list = $("rowsList");
+  const rows = filteredRows();
+  if (rows.length === 0){
+    list.innerHTML = `<div style="padding:34px;text-align:center;color:var(--muted)">Không có hàng nào ở mục lọc này.</div>`;
+    return;
+  }
+  const shown = rows.slice(0, renderCap);
+  const thr = S.current ? S.current.options.autoThreshold : 0.30;
+  const html = shown.map(r => {
+    const meta = STATUS_META[r.status] || STATUS_META.unmatched;
+    const pct = r.score != null ? Math.round(r.score * 100) : null;
+    const enCell = r.en != null
+      ? `<div class="cell en"><span class="tag">EN · ${r.en_index + 1}</span><div class="text">${esc(r.en)}</div></div>`
+      : `<div class="cell en missing"><span class="tag">EN</span><div class="text"><b>none</b> — không có đoạn tiếng Anh</div></div>`;
+    const viCell = r.vi != null
+      ? `<div class="cell vi"><span class="tag">VI · ${r.vi_index + 1}</span><div class="text">${esc(r.vi)}</div></div>`
+      : `<div class="cell vi missing"><span class="tag">VI</span><div class="text"><b>none</b> — không có bản dịch</div></div>`;
+    const paired = r.en != null && r.vi != null;
+    const meter = pct != null
+      ? `<div class="meter" title="Điểm tương đồng ${pct}%"><i style="width:${Math.min(100, pct)}%"></i></div><span class="score">${pct}%</span>`
+      : `<span class="score" style="opacity:.55">— không ghép —</span>`;
+    /* BẢN 2.3 — đúng 3 nút đánh dấu theo yêu cầu (xanh/vàng/đỏ):
+       ✓ Khớp → human_confirmed · ⚠ Soát → needs_review · ✕ Không khớp → unmatched (tách cặp).
+       Hàng một phía: nút vàng không áp dụng (bị khoá), nút xanh = xác nhận không có bản dịch. */
+    const isHuman = r.status === "human_confirmed";
+    const isReview = r.status === "needs_review";
+    const isUnmatch = r.status === "unmatched";
+    const acts = [
+      `<button class="mk mk-green${isHuman ? " on" : ""}" data-a="human_confirmed" ${isHuman ? "disabled" : ""} title="${paired ? "Khớp / khớp phần lớn — xác nhận cặp này đúng" : "Xác nhận là không có bản dịch"}">✓ Khớp</button>`,
+      `<button class="mk mk-yellow${isReview ? " on" : ""}" data-a="needs_review" ${(!paired || isReview) ? "disabled" : ""} title="${paired ? "Cần soát / khớp một phần — để dành xem lại" : "Hàng một phía không có mức soát"}">⚠ Soát</button>`,
+      `<button class="mk mk-red${isUnmatch ? " on" : ""}" data-a="unmatched" ${isUnmatch ? "disabled" : ""} title="${paired ? "Không khớp hoàn toàn — tách cặp, mỗi phía xuất 'none'" : "Trở lại “Không khớp”"}">✕ Không khớp</button>`,
+    ].join("");
+    const hint = paired ? "" : `<div class="hint-none">xuất file sẽ ghi chữ “none” phía thiếu</div>`;
+    return `<div class="row st-${meta.cls}" data-i="${r.index}">
+      <div class="rownum">${r.index + 1}</div>
+      ${enCell}
+      <div class="mid">
+        <span class="badge ${meta.badge}">${meta.vi}</span>
+        ${meter}
+        <div class="acts">${acts}</div>
+        ${hint}
+      </div>
+      ${viCell}
+    </div>`;
+  }).join("");
+  const more = rows.length > renderCap
+    ? `<button class="btn showmore" id="btnShowMore">Hiện thêm (còn ${rows.length - renderCap} hàng)</button>` : "";
+  list.innerHTML = html + more;
+}
+
+/* ================= Hành động trên hàng ================= */
+async function setRowStatus(index, status){
+  const cur = S.current;
+  if (!cur) return;
+  try {
+    const data = await api(`/api/sessions/${encodeURIComponent(cur.id)}/rows/${index}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    S.current.rows = data.rows;
+    S.current.counts = data.counts;
+    S.current.updatedAt = data.updatedAt;
+    render();
+    const vi = STATUS_META[status] ? STATUS_META[status].vi : status;
+    toast(`Đã cập nhật hàng ${index + 1} → “${vi}”.`, "ok", 2600);
+  } catch (e){
+    toast(e.message, "err");
+  }
+}
+
+/* ================= Phiên ================= */
+function newSession(keepText){
+  S.current = null;
+  S.filter = "all";
+  render();
+  if (!keepText){ /* giữ nguyên văn bản để chỉnh sửa rồi ghép lại */ }
+  toast("Đã bắt đầu phiên làm việc mới. Văn bản hai bên được giữ lại để bạn chỉnh sửa — nhấn “Ghép đoạn” khi sẵn sàng.", "ok", 5200);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  $("enText").focus();
+}
+async function releaseSession(id, silent){
+  try {
+    await api(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (S.current && S.current.id === id){ S.current = null; render(); }
+    await refreshSessions();
+    if (!silent) toast("Đã nhả phiên " + id + " (xoá vĩnh viễn khỏi máy).", "ok");
+  } catch (e){ toast(e.message, "err"); }
+}
+async function openSession(id){
+  try {
+    const data = await api(`/api/sessions/${encodeURIComponent(id)}`);
+    S.current = data;
+    S.filter = "all";
+    $("enText").value = (data.english || []).join("\n\n");
+    $("viText").value = (data.vietnamese || []).join("\n\n");
+    refreshCounts();
+    render();
+    closeDrawer();
+    toast(`Đã mở phiên ${id} — văn bản gốc được đưa về hai ô nhập.`, "ok", 4200);
+    $("resultsCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e){ toast(e.message, "err"); }
+}
+
+/* ================= Danh sách phiên ================= */
+async function refreshSessions(){
+  try {
+    const data = await api("/api/sessions");
+    S.sessions = data.sessions || [];
+    const n = S.sessions.length;
+    $("drawerCount").textContent = n ? `(${n})` : "";
+    $("drawerCount2").textContent = n;
+    renderDrawer();
+  } catch {}
+}
+function renderDrawer(){
+  const body = $("drawerBody");
+  if (!S.sessions.length){
+    body.innerHTML = `<div class="drawer-empty">Chưa có phiên nào được lưu.<br>Mỗi lần “Ghép đoạn” sẽ tạo một phiên mới tại đây.</div>`;
+    return;
+  }
+  body.innerHTML = S.sessions.map(s => {
+    const c = s.counts || {};
+    const curMark = (S.current && S.current.id === s.id) ? " current" : "";
+    return `<div class="s-item${curMark}">
+      <div class="t">${esc(s.title || "Phiên không tên")}</div>
+      <div class="m">${esc(s.id)} · ${fmtTime(s.createdAt)}</div>
+      <div class="chips-mini">
+        <span class="mini m-auto">${c.auto_matched ?? 0} tự khớp</span>
+        <span class="mini m-review">${c.needs_review ?? 0} soát</span>
+        <span class="mini m-unmatch">${c.unmatched ?? 0} không khớp</span>
+        <span class="mini m-human">${c.human_confirmed ?? 0} xác nhận</span>
+      </div>
+      <div class="row-btns">
+        <button class="btn" data-open="${esc(s.id)}">📂 Mở</button>
+        <button class="btn danger" data-rel="${esc(s.id)}">🗑 Nhả</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+function openDrawer(){ $("drawer").classList.add("show"); $("drawerVeil").classList.add("show"); refreshSessions(); }
+function closeDrawer(){ $("drawer").classList.remove("show"); $("drawerVeil").classList.remove("show"); }
+
+/* ================= Xuất file ================= */
+async function doExport(){
+  const cur = S.current;
+  if (!cur){ toast("Chưa có phiên để xuất — ghép trước đã.", "warn"); return; }
+  const btn = $("btnExport");
+  btn.classList.add("busy");
+  try {
+    const res = await fetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: cur.id, format: $("fmtSelect").value }),
+    });
+    if (!res.ok){
+      let err = `HTTP ${res.status}`;
+      try { const j = await res.json(); if (j && j.error) err = j.error; } catch {}
+      throw new Error(err);
+    }
+    const rows = res.headers.get("x-rows") || "?";
+    const noneN = res.headers.get("x-none-count") || "0";
+    const text = await res.text();
+    const cd = res.headers.get("content-disposition") || "";
+    const m = /filename="([^"]+)"/.exec(cd);
+    const name = m ? m[1] : `canh-doi-anh-viet-${cur.id}.txt`;
+    const blob = new Blob([text], { type: res.headers.get("content-type") || "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1200);
+    toast(`Đã xuất ${rows} hàng (${noneN} phía ghi “none”) → ${name}`, "ok", 6000);
+  } catch (e){
+    toast("Không xuất được: " + e.message, "err", 7000);
+  } finally { btn.classList.remove("busy"); }
+}
+
+/* ================= Tải URL ================= */
+async function fetchUrl(side){
+  const urlEl = side === "en" ? $("enUrl") : $("viUrl");
+  const errEl = side === "en" ? $("enUrlErr") : $("viUrlErr");
+  errEl.style.display = "none";
+  const url = urlEl.value.trim();
+  if (!url){ errEl.textContent = "Chưa nhập URL."; errEl.style.display = "block"; return; }
+  const btn = side === "en" ? $("enFetchBtn") : $("viFetchBtn");
+  btn.classList.add("busy");
+  busy(true, "Đang tải trang…", url);
+  try {
+    const data = await api("/api/fetch-url", { method: "POST", body: JSON.stringify({ url }) });
+    const target = side === "en" ? $("enText") : $("viText");
+    target.value = (data.paragraphs || []).join("\n\n");
+    refreshCounts();
+    toast(`Đã tải ${data.paragraphCount} đoạn từ “${data.title || url}”.`, "ok", 5000);
+  } catch (e){
+    errEl.textContent = e.message;
+    errEl.style.display = "block";
+    toast("Không tải được: " + e.message, "err", 7000);
+  } finally {
+    busy(false);
+    btn.classList.remove("busy");
+    refreshCounts(); // đồng bộ lại số đoạn + trạng thái nút Ghép — sửa lỗi nút bị mờ sau khi tải URL
+  }
+}
+
+/* ================= Selftest ================= */
+async function runSelftest(){
+  $("stModal").classList.add("show");
+  $("stBody").innerHTML = `<p style="color:var(--muted)">Đang chạy 21 bài kiểm tra nội bộ…</p>`;
+  try {
+    const d = await api("/api/selftest");
+    const pills = `
+      <span class="st-pill ${d.failed === 0 ? "pass" : "fail"}">${d.passed}/${d.total} đạt</span>
+      <span class="st-pill ms">tổng ${d.durationMs} ms</span>`;
+    const items = (d.tests || []).map(t => `
+      <div class="st-item ${t.passed ? "pass" : "fail"}">
+        <span class="mark">${t.passed ? "✓" : "✗"}</span>
+        <div>
+          <div class="nm">${esc(t.name)}</div>
+          ${t.passed ? "" : `<div class="dt">${esc(t.detail)}</div>`}
+        </div>
+        <span class="ms">${t.durationMs} ms</span>
+      </div>`).join("");
+    $("stBody").innerHTML = `<div class="st-summary">${pills}</div>` + items +
+      (d.failed === 0
+        ? `<p style="color:var(--green);font-weight:700;margin:10px 2px">✓ Toàn bộ đạt — gồm 4 bài hồi quy (regression) cho lỗi “panic index 61”, “không ghép được bài thứ hai”, “nút Ghép bị mờ sau khi tải URL”, “tải URL mất mục danh sách &lt;li&gt;”, 1 bài tích hợp LaBSE (dịch vụ nhúng giả lập) và 1 bài xuất CSV/HTML/XLIFF.</p>`
+        : `<p style="color:var(--rose);font-weight:700;margin:10px 2px">✗ Có ${d.failed} bài lỗi — gửi kèm nội dung chi tiết này nếu cần hỗ trợ.</p>`);
+  } catch (e){
+    $("stBody").innerHTML = `<p style="color:var(--rose)">Không chạy được selftest: ${esc(e.message)}</p>`;
+  }
+}
+
+/* ================= Bài mẫu ================= */
+const SAMPLE_EN = `Hanoi hosted the Green Tech Summit 2025 from March 12 to March 15, drawing more than 4,000 participants from 32 countries.
+
+Organizers said the event focused on clean energy, electric vehicles, and artificial intelligence applications in agriculture.
+
+Prime Minister Pham Minh Chinh delivered the opening speech, calling for stronger cooperation between Southeast Asian nations.
+
+More than 150 startups presented their products across three exhibition halls at the National Convention Center.
+
+Vietnamese electric vehicle maker VinFast introduced two new electric scooter models priced at 25 million dong.
+
+German energy firm Siemens signed a memorandum of understanding worth 120 million euros with Hanoi authorities.
+
+A panel on artificial intelligence drew criticism after organizers failed to invite any Vietnamese researchers.
+
+Attendance dropped 8 percent compared with the 2024 summit, largely because of visa delays for Chinese participants.
+
+The city government announced that the summit will return in March 2026 with an expected 6,000 visitors.
+
+Hotels near the venue reported occupancy above 90 percent during the four-day event.`;
+const SAMPLE_VI = `Hà Nội tổ chức Hội nghị Công nghệ Xanh 2025 từ ngày 12 tháng 3 đến 15 tháng 3, thu hút hơn 4.000 người tham dự từ 32 quốc gia.
+
+Ban tổ chức cho biết sự kiện tập trung vào năng lượng sạch, xe điện và ứng dụng trí tuệ nhân tạo trong nông nghiệp.
+
+Thủ tướng Phạm Minh Chính phát biểu khai mạc, kêu gọi tăng cường hợp tác giữa các quốc gia Đông Nam Á.
+
+Hơn 150 startup giới thiệu sản phẩm tại ba gian triển lãm ở Trung tâm Hội nghị Quốc gia.
+
+Hãng xe điện Việt Nam VinFast ra mắt hai mẫu xe máy điện mới với giá 25 triệu đồng.
+
+Tập đoàn năng lượng Đức Siemens ký biên bản ghi nhớ trị giá 120 triệu euro với chính quyền Hà Nội.
+
+Lượt tham dự giảm 8 phần trăm so với hội nghị 2024, chủ yếu do chậm cấp thị thực cho người tham dự Trung Quốc.
+
+Chính quyền thành phố thông báo hội nghị sẽ trở lại vào tháng 3 năm 2026 với 6.000 khách dự kiến.
+
+Các khách sạn quanh địa điểm tổ chức ghi nhận công suất trên 90 phần trăm trong bốn ngày sự kiện.`;
+
+/* ================= Gắn sự kiện ================= */
+document.addEventListener("DOMContentLoaded", () => {
+  $("btnAlign").addEventListener("click", doAlign);
+  $("btnNew").addEventListener("click", () => newSession(true));
+  $("btnNewFooter").addEventListener("click", () => newSession(true));
+  $("btnExport").addEventListener("click", doExport);
+  $("btnRelease").addEventListener("click", () => {
+    if (!S.current){ toast("Chưa có phiên nào đang mở.", "warn"); return; }
+    releaseSession(S.current.id);
+  });
+  $("btnReleaseAll").addEventListener("click", async () => {
+    if (!confirm("Nhả TẤT CẢ phiên đã lưu? Thao tác xoá vĩnh viễn mọi phiên trên máy này.")) return;
+    try {
+      const d = await api("/api/sessions", { method: "DELETE" });
+      S.current = null;
+      render();
+      await refreshSessions();
+      toast(`Đã nhả tất cả ${d.releasedAll} phiên.`, "ok");
+    } catch (e){ toast(e.message, "err"); }
+  });
+
+  document.querySelectorAll("#chips .chip").forEach(ch => {
+    ch.addEventListener("click", () => {
+      S.filter = ch.dataset.f;
+      renderChips(S.current ? S.current.counts : null);
+      renderRows();
+    });
+  });
+
+  document.addEventListener("click", (ev) => {
+    const b = ev.target.closest(".mk[data-a]");
+    if (!b) return;
+    const rowEl = b.closest(".row");
+    if (!rowEl) return;
+    const i = parseInt(rowEl.dataset.i, 10);
+    setRowStatus(i, b.dataset.a);
+  });
+
+  $("rowsList").addEventListener("click", (ev) => {
+    if (ev.target.id === "btnShowMore"){ renderCap += 600; renderRows(); }
+  });
+
+  $("enText").addEventListener("input", refreshCounts);
+  $("viText").addEventListener("input", refreshCounts);
+  $("enClear").addEventListener("click", () => { $("enText").value = ""; refreshCounts(); });
+  $("viClear").addEventListener("click", () => { $("viText").value = ""; refreshCounts(); });
+  $("enSample").addEventListener("click", () => { $("enText").value = SAMPLE_EN; refreshCounts(); toast("Đã điền bài mẫu tiếng Anh (10 đoạn).", "ok", 3000); });
+  $("viSample").addEventListener("click", () => { $("viText").value = SAMPLE_VI; refreshCounts(); toast("Đã điền bài mẫu tiếng Việt (9 đoạn — thiếu đoạn 7 để thử “none”).", "ok", 3600); });
+
+  $("enFetchBtn").addEventListener("click", () => fetchUrl("en"));
+  $("viFetchBtn").addEventListener("click", () => fetchUrl("vi"));
+  $("enUrl").addEventListener("keydown", (e) => { if (e.key === "Enter") fetchUrl("en"); });
+  $("viUrl").addEventListener("keydown", (e) => { if (e.key === "Enter") fetchUrl("vi"); });
+
+  $("thrAuto").addEventListener("input", () => { $("thrAutoVal").textContent = parseFloat($("thrAuto").value).toFixed(2); });
+
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){ e.preventDefault(); doAlign(); }
+  });
+
+  $("btnDrawer").addEventListener("click", openDrawer);
+  $("engineBadge").addEventListener("click", () => {
+    if (S.labseReady){
+      toast("LaBSE đang chạy — bộ ghép đang dùng kèm LaBSE cho độ chính xác cao.", "ok", 5000);
+    } else {
+      toast("Chưa bật LaBSE: chạy file build-and-run-windows.bat / build-and-run-macos.sh / build-and-run-linux.sh trong thư mục mã nguồn để tự build và khởi động LaBSE (mạng cần ~2 GB lần đầu). Xem README.md mục LaBSE.", "warn", 10000);
+    }
+  });
+  $("drawerClose").addEventListener("click", closeDrawer);
+  $("drawerVeil").addEventListener("click", closeDrawer);
+  $("drawerBody").addEventListener("click", (ev) => {
+    const o = ev.target.closest("[data-open]");
+    const r = ev.target.closest("[data-rel]");
+    if (o) openSession(o.dataset.open);
+    if (r) releaseSession(r.dataset.rel);
+  });
+
+  $("btnSelftest").addEventListener("click", runSelftest);
+  $("stClose").addEventListener("click", () => $("stModal").classList.remove("show"));
+  $("stRerun").addEventListener("click", runSelftest);
+  $("stModal").addEventListener("click", (ev) => { if (ev.target === $("stModal")) $("stModal").classList.remove("show"); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape"){ closeDrawer(); $("stModal").classList.remove("show"); } });
+
+  // khởi động
+  (async () => {
+    try {
+      const st = await api("/api/model-status");
+      updateEngineBadge(st);
+      $("portInfo").textContent = "cổng " + location.port;
+    } catch {
+      $("engineText").textContent = "Động cơ cục bộ (offline)";
+    }
+    await refreshSessions();
+    refreshCounts();
+  })();
+});
+</script>
+</body>
+</html>
