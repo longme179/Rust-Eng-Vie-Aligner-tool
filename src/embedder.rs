@@ -9,7 +9,8 @@
 //!   POST /embed  {"texts":[...]}  -> {"embeddings":[[...], ...]}   (đã chuẩn hoá L2)
 //!
 //! Biến môi trường:
-//!   CANH_DOI_LABSE_URL — địa chỉ dịch vụ LaBSE (mặc định http://127.0.0.1:3031)
+//!   REVA_LABSE_URL      — địa chỉ dịch vụ LaBSE (mặc định http://127.0.0.1:3031)
+//!   CANH_DOI_LABSE_URL  — tên CŨ (bản ≤2.4), vẫn được chấp nhận cho tương thích
 //!
 //! Mọi thất bại (không chạy / lỗi mạng / lỗi parse) đều fallback êm ái về bộ từ vựng,
 //! kèm `labse_error` để giao diện thông báo cho người dùng.
@@ -25,9 +26,11 @@ const EMBED_TIMEOUT: Duration = Duration::from_secs(600); // CPU chậm + lô 32
 const EMBED_BATCH: usize = 32; // mỗi request gửi tối đa 32 đoạn
 
 /// Địa chỉ dịch vụ LaBSE (đọc biến môi trường, bỏ dấu `/` cuối).
+/// Ưu tiên REVA_LABSE_URL (bản 2.5+), giữ tương thích CANH_DOI_LABSE_URL cũ.
 pub fn labse_url() -> String {
-    std::env::var("CANH_DOI_LABSE_URL")
+    std::env::var("REVA_LABSE_URL")
         .ok()
+        .or_else(|| std::env::var("CANH_DOI_LABSE_URL").ok())
         .map(|s| s.trim().trim_end_matches('/').to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "http://127.0.0.1:3031".to_string())
@@ -137,6 +140,23 @@ pub fn cosine_matrix(en: &[Vec<f32>], vi: &[Vec<f32>]) -> Vec<f64> {
 }
 
 // ========================= Pipeline dùng chung (/api/align + selftest) =========================
+
+/// BẢN 2.5 — RESCAN: nhúng 2 văn bản (các khối của một hàng đã nối lại) và trả về
+/// cosine giữa chúng. Trả None nếu LaBSE không chạy / lỗi (gọi rơi về điểm từ vựng).
+pub fn pair_cosine(en_text: &str, vi_text: &str) -> Option<f64> {
+    if !labse_ready() {
+        return None;
+    }
+    let texts = vec![en_text.to_string(), vi_text.to_string()];
+    match embed(&texts) {
+        Ok(emb) if emb.len() == 2 => Some(cosine(&emb[0], &emb[1])),
+        Ok(_) => None,
+        Err(_) => {
+            invalidate_health_cache(); // lần sau thử lại
+            None
+        }
+    }
+}
 
 pub struct PipelineOutcome {
     pub output: AlignOutput,

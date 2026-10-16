@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cánh đôi Anh–Việt — Ghép đoạn văn bản</title>
-<meta name="description" content="Công cụ ghép đoạn văn bản Anh–Việt, chạy 100% cục bộ trên máy bạn.">
+<title>REVA tool — Ghép &amp; sắp đoạn văn bản Anh–Việt</title>
+<meta name="description" content="REVA tool (tiền thân: Cánh đôi Anh–Việt) — ghép và sắp xếp đoạn văn bản song ngữ Anh–Việt bằng khối kéo–thả, chạy 100% cục bộ trên máy bạn.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root{
@@ -152,26 +152,18 @@
      nên khi nhiều hàng, mỗi hàng bị nén còn ~12–16px, chữ bị cắt hết (hàng “bí ngô” mỏng).
      flex:none cho mọi con → hàng giữ chiều cao tự nhiên, khung cuộn dọc như dự kiến. */
   .rows > *{flex:none}
-  /* BẢN 2.4 — trạng thái kéo–thả gộp hàng */
-  body.dragging{cursor:grabbing}
-  body.dragging .rows{user-select:none}
+  /* BẢN 2.5 — kéo–thả KHỐI (mỗi đoạn văn là 1 khối độc lập) */
+  body.blkdragging{cursor:grabbing}
+  body.blkdragging .rows{user-select:none}
   .rows::-webkit-scrollbar{width:11px}
   .rows::-webkit-scrollbar-thumb{background:var(--border2); border-radius:8px; border:3px solid var(--surface)}
   .rows::-webkit-scrollbar-thumb:hover{background:var(--faint)}
 
   .row{
-    display:grid; grid-template-columns:46px 1fr 196px 1fr; gap:0; border:1px solid var(--border);
+    display:grid; grid-template-columns:40px 1fr 196px 1fr; gap:0; border:1px solid var(--border);
     border-radius:12px; background:var(--surface); overflow:hidden; transition:border-color .15s;
   }
   .row:hover{border-color:var(--border2)}
-  /* BẢN 2.4 — chọn hàng / đích thả / hiệu ứng gộp xong */
-  .row.selected{outline:2px dashed var(--teal); outline-offset:-2px}
-  .row.droptarget{outline:3px solid var(--green); outline-offset:-3px; background:#f0fdf4; position:relative; z-index:2}
-  .row.droptarget::before{
-    content:"⇩ Thả để gộp vào hàng này"; position:absolute; top:-12px; left:50%; transform:translateX(-50%);
-    background:var(--green); color:#fff; font-size:11px; font-weight:800; padding:2px 11px; border-radius:99px; z-index:6; white-space:nowrap;
-    box-shadow:0 4px 14px -4px rgba(4,120,87,.55);
-  }
   .row.justmerged{animation:justflash 1.6s ease}
   @keyframes justflash{0%{box-shadow:0 0 0 5px rgba(4,120,87,.5)}100%{box-shadow:0 0 0 0 rgba(4,120,87,0)}}
   /* BẢN 2.3 — tô màu CẢ HÀNG (kéo nền qua 2 ô văn bản) theo quy ước 3 màu:
@@ -182,38 +174,62 @@
   .row.st-human{border-left:3px solid var(--green); background:linear-gradient(90deg,var(--green-bg) 0%,#ffffff 62%)}
   .row.st-review{border-left:3px solid #d97706; background:linear-gradient(90deg,var(--amber-bg) 0%,#ffffff 62%)}
   .row.st-unmatch{border-left:3px solid var(--rose); background:linear-gradient(90deg,var(--rose-bg) 0%,#ffffff 62%)}
-  .rownum{display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:4px; padding:7px 2px; font-family:var(--mono); font-size:12px; color:var(--faint); background:var(--surface2); border-right:1px solid var(--border)}
-  /* BẢN 2.4 — ô cầm kéo (grip) + nút Gộp dự phòng cho cảm ứng */
-  .grip{
-    width:38px; height:26px; display:grid; place-items:center; border-radius:7px; color:var(--faint);
-    cursor:grab; user-select:none; font-size:15px; line-height:1; transition:all .12s; touch-action:none;
-  }
-  .grip:hover{color:var(--teal-d); background:var(--teal-bg)}
-  .grip:focus-visible{outline:2px solid var(--teal); outline-offset:1px}
-  .grip:active{cursor:grabbing}
-  .row.selected .grip{color:var(--teal-d); background:var(--teal-l)}
+  .rownum{display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:4px; padding:9px 2px; font-family:var(--mono); font-size:12px; color:var(--faint); background:var(--surface2); border-right:1px solid var(--border)}
   .rownum .num{font-size:11.5px; color:var(--muted)}
-  .railbtn{
-    display:inline-flex; align-items:center; justify-content:center; gap:2px;
-    border:1px dashed var(--border2); background:var(--surface); color:var(--muted);
-    font-size:10px; font-weight:800; padding:4px 4px; border-radius:7px; transition:all .12s; white-space:nowrap;
-  }
-  .railbtn:hover:not([disabled]){border-color:var(--teal); color:var(--teal-d); background:var(--teal-bg)}
-  .railbtn:focus-visible{outline:2px solid var(--teal); outline-offset:1px}
-  .railbtn[disabled]{opacity:.3; pointer-events:none}
-  .cell{padding:11px 13px; min-width:0}
+  .rownum .rnum-ord{font-size:9px; color:var(--faint); letter-spacing:.5px}
+
+  /* ---- BẢN 2.5: ô ngôn ngữ chứa CÁC KHỐI đoạn ---- */
+  .cell{padding:10px 12px; min-width:0}
   .cell .tag{
     display:inline-block; font-size:10px; font-weight:800; letter-spacing:.8px; color:var(--faint);
     margin-bottom:5px; font-family:var(--mono);
   }
-  .cell .text{font-size:13.5px; line-height:1.62; overflow-wrap:break-word}
   .cell.missing{background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 8px,#f4f8f6 8px,#f4f8f6 16px)}
   .cell.missing .text{color:var(--faint); font-style:italic}
   .cell.missing .text b{font-family:var(--mono); font-style:normal; color:var(--muted); background:var(--slate-l); border-radius:5px; padding:1px 7px; font-size:12px}
-  /* BẢN 2.4 — các đoạn gộp hiển thị riêng trong ô, kèm nhãn đoạn gốc */
-  .seg-extra{margin-top:8px; padding:7px 10px; border-left:3px solid var(--border2); background:var(--surface2); border-radius:0 9px 9px 0}
-  .seg-extra .mtag{display:inline-block; font-family:var(--mono); font-size:9.5px; font-weight:800; color:var(--muted); background:var(--slate-l); padding:1px 6px; border-radius:5px; margin-bottom:4px}
-  .seg-extra .text{font-size:13px}
+  .cell.missing .drophere{display:block; margin-top:5px; font-style:normal; font-size:10.5px; font-weight:700; color:var(--teal-d); opacity:.85}
+  .blocks{display:flex; flex-direction:column; gap:7px}
+  /* KHỐI: mỗi đoạn là 1 khối co giãn theo độ lớn văn bản (morph/resize) —
+     đoạn ngắn thành khối nhỏ, đoạn dài ôm đủ chiều rộng rồi xuống dòng */
+  .blk{
+    position:relative; border:1px solid var(--border2); border-radius:10px; background:var(--surface);
+    padding:7px 10px 8px; width:fit-content; max-width:100%;
+    transition:border-color .13s, box-shadow .13s, opacity .13s;
+    cursor:grab; touch-action:manipulation;
+  }
+  .blk:hover{border-color:var(--teal); box-shadow:0 2px 10px -4px rgba(13,148,136,.35)}
+  .blk:focus-visible{outline:3px solid var(--teal-l); outline-offset:1px}
+  .blk:active{cursor:grabbing}
+  .blk .bhead{display:flex; align-items:center; gap:6px; margin-bottom:3px}
+  .blk .btag{
+    display:inline-block; font-family:var(--mono); font-size:9.5px; font-weight:800; letter-spacing:.6px;
+    color:var(--muted); background:var(--slate-l); border-radius:5px; padding:1px 7px; white-space:nowrap;
+  }
+  .blk .btext{font-size:13px; line-height:1.55; overflow-wrap:break-word}
+  .blk .bdetach{
+    border:none; background:transparent; color:var(--faint); font-size:12px; line-height:1;
+    padding:2px 5px; border-radius:5px; cursor:pointer; transition:all .12s;
+  }
+  .blk .bdetach:hover{color:var(--rose); background:var(--rose-l)}
+  .blk .bdetach:focus-visible{outline:2px solid var(--rose); outline-offset:1px}
+  /* khối đang được kéo đi / khối đang chọn (đường cho cảm ứng) */
+  .blk.dragsrc{opacity:.38; border-style:dashed}
+  .blk.blksel{outline:2.5px solid var(--teal); outline-offset:2px; border-color:var(--teal)}
+  /* ô đích khi kéo qua / ô hợp lệ khi đang chọn khối */
+  .cell.over{background:var(--teal-bg); outline:2px dashed var(--teal); outline-offset:-3px}
+  .cell.droppable{background:linear-gradient(0deg,rgba(13,148,136,.05),rgba(13,148,136,.05))}
+  .cell.missing.over{background:var(--teal-bg)}
+  /* vạch chỉ vị trí chèn giữa các khối */
+  .insmark{height:0; border-top:3px solid var(--teal); border-radius:2px; margin:2px 0; position:relative; animation:inspulse .9s ease infinite alternate}
+  .insmark::after{content:"⇩"; position:absolute; right:2px; top:-12px; color:var(--teal); font-size:10px; font-weight:900}
+  @keyframes inspulse{from{opacity:.5}to{opacity:1}}
+  /* thả vào thân hàng (không phải ô cùng phía) = TÁCH khối thành hàng riêng */
+  .row.detachtarget{outline:3px dashed var(--amber); outline-offset:-3px; position:relative; z-index:2}
+  .row.detachtarget::before{
+    content:"⇥ Thả đây để TÁCH thành hàng riêng"; position:absolute; top:-12px; left:50%; transform:translateX(-50%);
+    background:var(--amber); color:#fff; font-size:11px; font-weight:800; padding:2px 11px; border-radius:99px; z-index:6; white-space:nowrap;
+    box-shadow:0 4px 14px -4px rgba(180,83,9,.55);
+  }
   .mid{padding:10px 12px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; border-left:1px dashed var(--border); border-right:1px dashed var(--border); background:rgba(255,255,255,.5)}
   .badge{font-size:11.5px; font-weight:700; padding:3px 11px; border-radius:99px; white-space:nowrap}
   .badge.b-auto{background:var(--green-l); color:var(--green)}
@@ -224,6 +240,17 @@
   .meter{width:100%; height:5px; border-radius:4px; background:var(--slate-l); overflow:hidden}
   .meter i{display:block; height:100%; border-radius:4px; background:linear-gradient(90deg,#14b8a6,#0d9488)}
   .score{font-family:var(--mono); font-size:11px; color:var(--muted)}
+  /* BẢN 2.5 — nút Rescan LaBSE của từng hàng */
+  .rescanbtn{
+    display:inline-flex; align-items:center; justify-content:center; gap:4px; width:100%;
+    border:1px solid var(--border2); background:var(--surface); color:var(--muted);
+    font-size:10.5px; font-weight:800; padding:4px 6px; border-radius:7px; transition:all .12s; white-space:nowrap;
+  }
+  .rescanbtn:hover:not([disabled]){border-color:var(--teal); color:var(--teal-d); background:var(--teal-bg)}
+  .rescanbtn:focus-visible{outline:2px solid var(--teal); outline-offset:1px}
+  .rescanbtn[disabled]{opacity:.32; pointer-events:none}
+  .rescanbtn.busy{opacity:.55; pointer-events:none}
+  .rescanbtn.busy .rs{display:inline-block; animation:rot 1s linear infinite}
   /* BẢN 2.3 — đúng 3 nút đánh dấu (xanh/vàng/đỏ) thay cho 4 nút icon cũ */
   .acts{display:flex; gap:5px; flex-direction:column; width:100%; margin-top:2px}
   .mk{
@@ -246,15 +273,14 @@
   @media(max-width:760px){
     /* Sửa bố cục mobile (bản 2.1 để .mid rơi vào cột 28px gây cắt nội dung):
        [số thứ tự | đoạn EN] / [thanh giữa trải nguyên hàng] / [— | đoạn VI] */
-    .row{grid-template-columns:46px minmax(0,1fr)}
+    .row{grid-template-columns:40px minmax(0,1fr)}
     .cell.en{grid-column:2; border-bottom:1px dashed var(--border)}
     .mid{grid-column:1 / -1; border-left:none; border-right:none; border-bottom:1px dashed var(--border); flex-direction:row; flex-wrap:wrap; justify-content:space-between; align-items:center}
     .cell.vi{grid-column:2}
     .meter{flex:1; min-width:50px}
     .acts{flex-direction:row; width:auto}
     .mk{width:auto; padding:6px 10px}
-    .railbtn span{display:none}
-    .grip{width:36px; font-size:13px}
+    .rescanbtn{width:auto; padding:5px 9px}
   }
 
   /* ---- mobile: header gọn, không tràn ngang ---- */
@@ -379,13 +405,13 @@
       <svg viewBox="0 0 64 64" fill="none"><rect x="6" y="14" width="24" height="36" rx="5" fill="#fff" opacity=".92"/><rect x="34" y="14" width="24" height="36" rx="5" fill="#fde68a"/><path d="M24 32h16m0 0-5-5m5 5-5 5" stroke="#0d9488" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </div>
     <div class="logo-text">
-      <h1>Cánh đôi Anh–Việt</h1>
-      <p>Ghép đoạn văn bản song ngữ — 100% cục bộ, không gửi dữ liệu đi đâu</p>
+      <h1>REVA tool</h1>
+      <p>Ghép &amp; sắp đoạn song ngữ — kéo–thả khối, hoàn tác tuỳ ý, 100% cục bộ</p>
     </div>
   </div>
   <div class="top-actions">
     <button class="engine-badge" id="engineBadge" type="button" title="Động cơ ghép — nhấn để xem cách bật LaBSE (chế độ chính xác cao)"><span class="dot" aria-hidden="true"></span><span id="engineText" class="etext">đang kiểm tra…</span></button>
-    <button class="btn" id="btnSelftest" title="Chạy 25 bài tự kiểm nội bộ">🧪 Tự kiểm tra</button>
+    <button class="btn" id="btnSelftest" title="Chạy 30 bài tự kiểm nội bộ">🧪 Tự kiểm tra</button>
     <button class="btn" id="btnDrawer" title="Danh sách các phiên đã lưu">📂 Các phiên <span class="n" id="drawerCount" style="font-family:var(--mono)"></span></button>
   </div>
 </header>
@@ -453,7 +479,7 @@
         <h2>🔎 Kết quả ghép</h2>
         <span class="session-chip" id="sessionChip" style="display:none"></span>
         <span style="flex:1"></span>
-        <span style="font-size:12px;color:var(--muted)">Kéo ô <b style="font-family:var(--mono)">⠿</b> để gộp hàng liền kề · 3 nút màu để đánh dấu</span>
+        <span style="font-size:12px;color:var(--muted)">Mỗi đoạn là 1 khối 🧩 — kéo sang hàng cùng ngôn ngữ · thả thân hàng để tách riêng · ↻ Rescan · Ctrl+Z</span>
       </div>
       <div class="legend" aria-label="Chú giải màu">
         <span class="lg lg-green">Khớp / khớp phần lớn</span>
@@ -469,6 +495,8 @@
       </div>
     </div>
     <div class="res-toolbar" id="resToolbar" style="display:none">
+      <button class="btn" id="btnUndo" disabled title="Hoàn tác thao tác gần nhất (kéo khối / gộp / đánh dấu / rescan) — Ctrl+Z">↩ <span class="lbl">Hoàn tác</span></button>
+      <button class="btn" id="btnRedo" disabled title="Làm lại thao tác vừa hoàn tác — Ctrl+Shift+Z">↪ <span class="lbl">Làm lại</span></button>
       <label for="fmtSelect" style="font-size:13px;color:var(--muted)">Định dạng:</label>
       <select id="fmtSelect" aria-label="Định dạng xuất">
         <option value="tsv">TSV — hai cột ngăn tab</option>
@@ -490,8 +518,8 @@
       <ol>
         <li>Dán văn bản vào hai ô phía trên — hoặc nhấn <b>Bài mẫu</b> để thử ngay.</li>
         <li>Nhấn <b>⚡ Ghép đoạn</b> (hoặc <b>Ctrl+Enter</b>).</li>
-        <li>Bên này viết liền 1 đoạn, bên kia tách thành danh sách? Kéo ô <b style="font-family:var(--mono)">⠿</b> của các hàng dưới thả vào hàng trên để <b>gộp</b> (được cả chọn nhiều hàng liền kề), rồi bấm <b style="color:var(--green)">✓ Khớp</b> / <b style="color:var(--amber)">⚠ Soát</b>.</li>
-        <li>Kiểm tra các cặp <b style="color:var(--amber)">Cần soát</b>, xác nhận hoặc bỏ ghép từng hàng.</li>
+        <li>Sau khi ghép, <b>mỗi đoạn là một khối 🧩</b>: kéo khối sang ô cùng ngôn ngữ của hàng khác (ví dụ kéo D1, E1 lên chung sau C1), đổi thứ tự tuỳ ý, thả vào thân hàng (hoặc bấm ⇥) để tách riêng.</li>
+        <li>Kéo xong bấm <b>↻ Rescan LaBSE</b> trên từng hàng để chấm lại độ khớp; kéo nhầm thì <b>Ctrl+Z</b> hoàn tác ngay.</li>
         <li>Nhấn <b>⬇ Xuất file</b> — đoạn thiếu một phía sẽ ghi đúng chữ <code style="font-family:var(--mono)">none</code>.</li>
       </ol>
     </div>
@@ -501,7 +529,7 @@
 <footer class="statusbar">
   <span class="live"><span class="dot"></span> Hoạt động cục bộ 100%</span>
   <span id="portInfo">cổng 3000</span>
-  <span title="Bản 2.4 — kéo–thả gộp hàng (1 EN ↔ nhiều VI) · Bản 2.3: trích mục danh sách <li> khi tải URL + tô màu 3 mức + xuất CSV/HTML/XLIFF + LaBSE tuỳ chọn">bản 2.4</span>
+  <span title="Bản 2.5 — mô hình khối kéo–thả tự do + hoàn tác Ctrl+Z + Rescan LaBSE từng hàng · Bản 2.4: gộp hàng · Bản 2.3: trích <li>, 3 màu, CSV/HTML/XLIFF, LaBSE">bản 2.5 · REVA</span>
   <span>phiên: <span id="curSession">—</span></span>
   <span class="right">
     <span><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> ghép nhanh</span>
@@ -561,9 +589,9 @@ const S = {
   format: "tsv",
   busy: false,
   labseReady: false,  // LaBSE service có đang chạy không (từ /api/model-status)
-  sel: [],            // BẢN 2.4 — các hàng đang chọn để kéo–thả gộp (chỉ số hàng)
-  selAnchor: null,
-  drag: null,         // {top, count} khi đang kéo
+  dragBlk: null,      // BẢN 2.5 — khối đang kéo: {side, row, pos}
+  selBlk: null,       // BẢN 2.5 — khối đang chọn (đường cho cảm ứng/bàn phím): {side, row, pos}
+  dropHint: null,     // BẢN 2.5 — vị trí thả hiện tại: {type:"cell",...} | {type:"detach",...}
 };
 
 const $ = (id) => document.getElementById(id);
@@ -696,6 +724,7 @@ function render(){
   $("resToolbar").style.display = has ? "" : "none";
   $("sessionChip").style.display = has ? "" : "none";
   $("curSession").textContent = has ? cur.id : "—";
+  updateUndoState();
   if (!has){ renderChips(null); return; }
   $("sessionChip").textContent = `phiên ${cur.id} · ${fmtTime(cur.createdAt)}${(cur.engine && String(cur.engine).indexOf("labse") !== -1) ? " · LaBSE" : ""}`;
   renderChips(cur.counts);
@@ -717,8 +746,8 @@ function filteredRows(){
 const RENDER_CAP_DEFAULT = 400;
 let renderCap = RENDER_CAP_DEFAULT;
 
-/* ================= BẢN 2.4 — hàng gộp (kéo–thả) ================= */
-/* Các đoạn của một phía (đoạn chính + đoạn gộp), kèm chỉ số gốc */
+/* ================= BẢN 2.5 — hàng GỘP + KHỐI kéo–thả ================= */
+/* Các đoạn của một phía (đoạn chính + đoạn gộp), kèm chỉ số gốc — chính là CÁC KHỐI */
 function segsOf(side, r){
   const segs = [];
   if (side === "en"){
@@ -730,20 +759,24 @@ function segsOf(side, r){
   }
   return segs;
 }
+/* Ô ngôn ngữ = danh sách KHỐI. Mỗi khối co giãn theo độ lớn văn bản (morph/resize),
+   kéo–thả được (draggable), có nút ⇥ tách riêng. Ô thiếu hiện “none” + gợi ý kéo vào. */
 function cellHtml(side, r){
   const segs = segsOf(side, r);
   const LANG = side === "en" ? "EN" : "VI";
   if (segs.length === 0){
     const miss = side === "en" ? "không có đoạn tiếng Anh" : "không có bản dịch";
-    return `<div class="cell ${side} missing"><span class="tag">${LANG}</span><div class="text"><b>none</b> — ${miss}</div></div>`;
+    return `<div class="cell ${side} missing" data-side="${side}" data-row="${r.index}"><span class="tag">${LANG}</span><div class="text"><b>none</b> — ${miss}<span class="drophere">⇩ kéo khối ${LANG} vào đây để ghép cặp</span></div></div>`;
   }
-  const multi = segs.length > 1;
-  const tag = multi ? `${LANG} · ${segs.map(s => s.i + 1).join(" + ")}` : `${LANG} · ${segs[0].i + 1}`;
-  const body = segs.map((s, k) => k === 0
-    ? `<div class="text">${esc(s.text)}</div>`
-    : `<div class="seg-extra"><span class="mtag" title="Đoạn gốc số ${s.i + 1} — đã gộp vào hàng này">+${s.i + 1}</span><div class="text">${esc(s.text)}</div></div>`
-  ).join("");
-  return `<div class="cell ${side}"><span class="tag">${tag}</span>${body}</div>`;
+  const tag = segs.length > 1 ? `${LANG} · ${segs.map(s => s.i + 1).join(" + ")}` : `${LANG} · ${segs[0].i + 1}`;
+  const blocks = segs.map((s, pos) => `
+    <div class="blk" draggable="true" data-side="${side}" data-row="${r.index}" data-pos="${pos}" tabindex="0" role="button"
+         aria-label="Khối ${LANG} — đoạn gốc ${s.i + 1}. Kéo sang ô ${LANG} của hàng khác, hoặc bấm để chọn rồi bấm ô đích."
+         title="Kéo khối này vào ô ${LANG} của hàng bất kỳ (hoặc bấm để chọn rồi bấm ô đích cùng phía). ⇥ = tách thành hàng riêng">
+      <div class="bhead"><span class="btag">${LANG}·${s.i + 1}</span><span style="flex:1"></span><button class="bdetach" data-side="${side}" data-row="${r.index}" data-pos="${pos}" title="Tách khối này thành hàng riêng (ngay sau hàng này)" aria-label="Tách khối ${LANG} đoạn ${s.i + 1} thành hàng riêng">⇥</button></div>
+      <div class="btext">${esc(s.text)}</div>
+    </div>`).join("");
+  return `<div class="cell ${side}" data-side="${side}" data-row="${r.index}"><span class="tag">${tag}</span><div class="blocks">${blocks}</div></div>`;
 }
 function renderRows(){
   const list = $("rowsList");
@@ -762,11 +795,11 @@ function renderRows(){
     const pct = r.score != null ? Math.round(r.score * 100) : null;
     const meter = pct != null
       ? `<div class="meter" title="Điểm tương đồng ${pct}%"><i style="width:${Math.min(100, pct)}%"></i></div><span class="score">${pct}%</span>`
-      : (isMerged
-          ? `<span class="score">— đã gộp tay —</span>`
+      : (paired
+          ? `<span class="score" style="opacity:.6">— chờ rescan —</span>`
           : `<span class="score" style="opacity:.55">— không ghép —</span>`);
     const mergechip = isMerged
-      ? `<span class="mergechip" title="Hàng này gộp nhiều đoạn gốc (kéo–thả)">🔗 ${enSegs.length} EN · ${viSegs.length} VI</span>`
+      ? `<span class="mergechip" title="Hàng này gộp nhiều khối gốc (kéo–thả)">🔗 ${enSegs.length} EN · ${viSegs.length} VI</span>`
       : "";
     /* BẢN 2.3 — đúng 3 nút đánh dấu theo yêu cầu (xanh/vàng/đỏ):
        ✓ Khớp → human_confirmed · ⚠ Soát → needs_review · ✕ Không khớp → unmatched (tách cặp).
@@ -779,21 +812,18 @@ function renderRows(){
       `<button class="mk mk-yellow${isReview ? " on" : ""}" data-a="needs_review" ${(!paired || isReview) ? "disabled" : ""} title="${paired ? "Cần soát / khớp một phần — để dành xem lại" : "Hàng một phía không có mức soát"}">⚠ Soát</button>`,
       `<button class="mk mk-red${isUnmatch ? " on" : ""}" data-a="unmatched" ${isUnmatch ? "disabled" : ""} title="${paired ? "Không khớp hoàn toàn — tách cặp, mỗi phía xuất 'none'" : "Trở lại “Không khớp”"}">✕ Không khớp</button>`,
     ].join("");
-    /* BẢN 2.4 — grip kéo–thả + nút ⇡ Gộp (phím tắt cảm ứng cho thao tác kéo) */
-    const mergebtn = `<button class="railbtn" data-merge="${r.index}" ${r.index === 0 ? "disabled" : ""} title="Gộp hàng này (hoặc cả vùng đang chọn) vào hàng phía trên — phím tắt cho kéo–thả">⇡<span> Gộp</span></button>`;
+    /* BẢN 2.5 — nút Rescan LaBSE của riêng từng hàng */
+    const rescanBtn = `<button class="rescanbtn" data-rescan="${r.index}" ${paired ? "" : "disabled"} title="${paired ? "Chấm lại điểm khớp của hàng này (LaBSE nếu đang chạy, kèm sàn từ vựng) — dùng sau khi kéo–thả khối" : "Hàng một phía chưa chấm được — kéo khối vào phía thiếu trước"}"><span class="rs">↻</span><span> Rescan LaBSE</span></button>`;
     const hint = paired ? "" : `<div class="hint-none">xuất file sẽ ghi chữ “none” phía thiếu</div>`;
     return `<div class="row st-${meta.cls}" data-i="${r.index}">
-      <div class="rownum">
-        <div class="grip" draggable="true" tabindex="0" role="button" aria-label="Chọn hoặc kéo để gộp hàng ${r.index + 1} vào hàng trên" title="Kéo thả vào hàng phía trên để GỘP (bấm để chọn; giữ Shift + bấm để chọn vùng nhiều hàng liền kề)"><span aria-hidden="true">⠿</span></div>
-        <span class="num">${r.index + 1}</span>
-        ${mergebtn}
-      </div>
+      <div class="rownum"><span class="rnum-ord">ROW</span><span class="num">${r.index + 1}</span></div>
       ${cellHtml("en", r)}
       <div class="mid">
         <span class="badge ${meta.badge}">${meta.vi}</span>
         ${mergechip}
         ${meter}
         <div class="acts">${acts}</div>
+        ${rescanBtn}
         ${hint}
       </div>
       ${cellHtml("vi", r)}
@@ -802,7 +832,7 @@ function renderRows(){
   const more = rows.length > renderCap
     ? `<button class="btn showmore" id="btnShowMore">Hiện thêm (còn ${rows.length - renderCap} hàng)</button>` : "";
   list.innerHTML = html + more;
-  paintSelection();
+  paintBlkSel();
 }
 
 /* ================= Hành động trên hàng ================= */
@@ -817,7 +847,9 @@ async function setRowStatus(index, status){
     S.current.rows = data.rows;
     S.current.counts = data.counts;
     S.current.updatedAt = data.updatedAt;
-    S.sel = []; // tách cặp làm đổi chỉ số hàng — xoá vùng chọn cũ
+    S.current.canUndo = data.canUndo;
+    S.current.canRedo = data.canRedo;
+    S.selBlk = null; // tách cặp làm đổi chỉ số hàng — bỏ chọn khối cũ
     render();
     const vi = STATUS_META[status] ? STATUS_META[status].vi : status;
     toast(`Đã cập nhật hàng ${index + 1} → “${vi}”.`, "ok", 2600);
@@ -826,106 +858,7 @@ async function setRowStatus(index, status){
   }
 }
 
-/* ================= BẢN 2.4 — chọn hàng + kéo–thả gộp ================= */
-function selContiguous(){
-  if (S.sel.length === 0) return false;
-  for (let k = 1; k < S.sel.length; k++){
-    if (S.sel[k] !== S.sel[k - 1] + 1) return false;
-  }
-  return true;
-}
-function toggleSel(i, shiftKey){
-  if (shiftKey && S.selAnchor != null){
-    const a = Math.min(S.selAnchor, i), b = Math.max(S.selAnchor, i);
-    S.sel = [];
-    for (let k = a; k <= b; k++) S.sel.push(k);
-  } else {
-    const at = S.sel.indexOf(i);
-    if (at >= 0){
-      S.sel.splice(at, 1);
-    } else {
-      S.sel.push(i);
-      S.sel.sort((x, y) => x - y);
-      S.selAnchor = i;
-    }
-  }
-  paintSelection();
-}
-function paintSelection(){
-  document.querySelectorAll("#rowsList .row").forEach(el => {
-    const i = parseInt(el.dataset.i, 10);
-    el.classList.toggle("selected", S.sel.includes(i));
-  });
-  updateMergeButtons();
-}
-function updateMergeButtons(){
-  document.querySelectorAll("#rowsList .railbtn").forEach(btn => {
-    const i = parseInt(btn.dataset.merge, 10);
-    const multi = S.sel.length > 1 && selContiguous() && S.sel[0] === i;
-    btn.innerHTML = multi ? `⇡<span> Gộp ${S.sel.length}</span>` : `⇡<span> Gộp</span>`;
-    btn.title = multi
-      ? `Gộp ${S.sel.length} hàng đang chọn (từ hàng này) vào hàng phía trên`
-      : "Gộp hàng này (hoặc cả vùng đang chọn) vào hàng phía trên — phím tắt cho kéo–thả";
-  });
-}
-
-function onDragStart(ev){
-  const grip = ev.target.closest(".grip");
-  if (!grip) return;
-  if (!S.current){ ev.preventDefault(); return; }
-  if (S.filter !== "all"){
-    toast("Hãy chọn mục lọc “Tổng” trước khi kéo–thả (cần nhìn thấy đủ các hàng liền kề).", "warn", 5200);
-    ev.preventDefault();
-    return;
-  }
-  const rowEl = grip.closest(".row");
-  const i = parseInt(rowEl.dataset.i, 10);
-  let group = [i];
-  if (S.sel.includes(i) && S.sel.length > 1 && selContiguous()){
-    group = S.sel.slice();
-  } else {
-    S.sel = [i];
-    S.selAnchor = i;
-    paintSelection();
-  }
-  S.drag = { top: group[0], count: group.length };
-  try {
-    ev.dataTransfer.effectAllowed = "move";
-    ev.dataTransfer.setData("text/plain", "rows:" + group.join(","));
-  } catch {}
-  document.body.classList.add("dragging");
-}
-function validDropIndex(){
-  return S.drag && S.drag.top > 0 ? S.drag.top - 1 : null;
-}
-function onDragOver(ev){
-  if (!S.drag) return;
-  const rowEl = ev.target.closest(".row");
-  const vi = validDropIndex();
-  const ok = !!(rowEl && vi != null && parseInt(rowEl.dataset.i, 10) === vi);
-  document.querySelectorAll("#rowsList .row.droptarget").forEach(el => el.classList.remove("droptarget"));
-  if (ok){
-    ev.preventDefault();
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
-    rowEl.classList.add("droptarget");
-  } else if (ev.dataTransfer){
-    ev.dataTransfer.dropEffect = "none";
-  }
-}
-function cleanupDrag(){
-  S.drag = null;
-  document.body.classList.remove("dragging");
-  document.querySelectorAll(".row.droptarget").forEach(el => el.classList.remove("droptarget"));
-}
-function onDrop(ev){
-  ev.preventDefault();
-  if (!S.drag) return;
-  const vi = validDropIndex();
-  const { top, count } = S.drag;
-  cleanupDrag();
-  if (vi == null) return;
-  mergeUp(top, count);
-}
+/* ================= BẢN 2.5 — KHỐI: kéo–thả, chọn, tách, hoàn tác, rescan ================= */
 function flashRow(i){
   const el = document.querySelector(`#rowsList .row[data-i="${i}"]`);
   if (!el) return;
@@ -933,52 +866,269 @@ function flashRow(i){
   el.scrollIntoView({ behavior: "smooth", block: "center" });
   setTimeout(() => el.classList.remove("justmerged"), 1700);
 }
-/** Gộp `count` hàng bắt đầu từ hàng `top` (0-based) vào hàng phía trên (top-1). */
-async function mergeUp(top, count){
+function updateUndoState(){
+  const c = S.current;
+  $("btnUndo").disabled = !(c && c.canUndo);
+  $("btnRedo").disabled = !(c && c.canRedo);
+}
+function applySessionData(data){
+  S.current.rows = data.rows;
+  S.current.counts = data.counts;
+  S.current.updatedAt = data.updatedAt;
+  if (data.canUndo !== undefined) S.current.canUndo = data.canUndo;
+  if (data.canRedo !== undefined) S.current.canRedo = data.canRedo;
+  S.selBlk = null;
+  render();
+}
+/** DI CHUYỂNH KHỐI — POST /api/sessions/{id}/blocks/move (chuyển hàng / đổi chỗ / tách riêng). */
+async function moveBlock(payload, msg){
   const cur = S.current;
-  if (!cur) return;
-  busy(true, "Đang gộp hàng…", count > 1 ? `${count} hàng vào hàng ${top}` : `hàng ${top + 1} vào hàng ${top}`);
+  if (!cur || S.busy) return;
   try {
-    for (let k = count - 1; k >= 0; k--){
-      const target = top + k - 1; // merge_next(target) hấp thụ hàng target+1
-      const data = await api(`/api/sessions/${encodeURIComponent(cur.id)}/rows/${target}/merge`, {
-        method: "POST",
-        body: JSON.stringify({ status: null }),
-      });
-      S.current.rows = data.rows;
-      S.current.counts = data.counts;
-      S.current.updatedAt = data.updatedAt;
-    }
-    S.sel = [];
-    render();
-    flashRow(top - 1);
-    toast(`Đã gộp ${count + 1} hàng thành một (hàng ${top}) — kiểm lại rồi bấm ✓ Khớp / ⚠ Soát.`, "ok", 6500);
+    const data = await api(`/api/sessions/${encodeURIComponent(cur.id)}/blocks/move`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    applySessionData(data);
+    flashRow(data.focusRow != null ? data.focusRow : 0);
+    if (msg) toast(msg + " Ctrl+Z để hoàn tác nếu lỡ tay.", "ok", 3600);
   } catch (e){
-    toast("Không gộp được: " + e.message, "err", 7000);
-    S.sel = [];
-    render();
-  } finally {
-    busy(false);
+    toast("Không di chuyển được khối: " + e.message, "err", 7000);
   }
 }
-async function onMergeBtn(i){
-  if (!S.current) return;
-  if (i === 0){
-    toast("Hàng đầu tiên không có hàng phía trên để gộp.", "warn");
+/** HOÀN TÁC bước gần nhất (kéo khối / tách / gộp / đánh dấu / rescan). */
+async function doUndo(){
+  const cur = S.current;
+  if (!cur) return;
+  try {
+    const data = await api(`/api/sessions/${encodeURIComponent(cur.id)}/undo`, { method: "POST" });
+    applySessionData(data);
+    toast("Đã hoàn tác thao tác gần nhất.", "ok", 2600);
+  } catch (e){
+    toast(e.message, "err");
+  }
+}
+/** LÀM LẠI bước vừa hoàn tác. */
+async function doRedo(){
+  const cur = S.current;
+  if (!cur) return;
+  try {
+    const data = await api(`/api/sessions/${encodeURIComponent(cur.id)}/redo`, { method: "POST" });
+    applySessionData(data);
+    toast("Đã làm lại thao tác.", "ok", 2600);
+  } catch (e){
+    toast(e.message, "err");
+  }
+}
+/** RESCAN một hàng — chấm lại điểm khớp sau khi kéo–thả (LaBSE + sàn từ vựng). */
+async function rescanRow(i){
+  const cur = S.current;
+  if (!cur) return;
+  const btn = document.querySelector(`#rowsList .rescanbtn[data-rescan="${i}"]`);
+  if (btn){ btn.classList.add("busy"); btn.disabled = true; }
+  try {
+    const data = await api(`/api/sessions/${encodeURIComponent(cur.id)}/rows/${i}/rescan`, {
+      method: "POST",
+      body: "{}",
+    });
+    applySessionData(data);
+    const rs = data.rescan || {};
+    const pct = rs.score != null ? Math.round(rs.score * 100) + "%" : "?";
+    const stv = STATUS_META[rs.status] ? STATUS_META[rs.status].vi : (rs.status || "");
+    toast(`Rescan hàng ${i + 1}: ${pct} — ${stv}${rs.labseUsed ? " (LaBSE + từ vựng)" : " (từ vựng — chưa bật LaBSE)"}`, "ok", 4600);
+    flashRow(i);
+  } catch (e){
+    toast("Rescan không thành công: " + e.message, "err", 6500);
+    if (btn){ btn.classList.remove("busy"); btn.disabled = false; }
+  }
+}
+
+/* ---- vạch chỉ vị trí chèn + tô ô đích ---- */
+let insMarkEl = null;
+function clearInsMark(){
+  if (insMarkEl){ insMarkEl.remove(); insMarkEl = null; }
+}
+function clearDropHighlights(){
+  document.querySelectorAll("#rowsList .cell.over").forEach(el => el.classList.remove("over"));
+  document.querySelectorAll("#rowsList .row.detachtarget").forEach(el => el.classList.remove("detachtarget"));
+  clearInsMark();
+}
+function showInsMark(cell, pos){
+  clearInsMark();
+  const blocksWrap = cell.querySelector(".blocks");
+  if (!blocksWrap){ cell.classList.add("over"); return; } // ô "none" — chỉ tô viền
+  insMarkEl = document.createElement("div");
+  insMarkEl.className = "insmark";
+  const kids = [...blocksWrap.children].filter(el => el.classList.contains("blk"));
+  if (pos >= kids.length) blocksWrap.appendChild(insMarkEl);
+  else blocksWrap.insertBefore(insMarkEl, kids[pos]);
+}
+/** Chỉ đổi highlight khi gợi ý thật sự đổi — tránh nhấp nháy khi dragover liên tục. */
+function setDropHint(h){
+  if (JSON.stringify(h) === JSON.stringify(S.dropHint)) return;
+  S.dropHint = h;
+  clearDropHighlights();
+  if (!h) return;
+  if (h.type === "cell"){
+    const cell = document.querySelector(`#rowsList .cell[data-side="${h.side}"][data-row="${h.row}"]`);
+    if (cell){ cell.classList.add("over"); showInsMark(cell, h.pos); }
+  } else {
+    const rowEl = document.querySelector(`#rowsList .row[data-i="${h.afterRow}"]`);
+    if (rowEl) rowEl.classList.add("detachtarget");
+  }
+}
+/** Vị trí chèn trong ô = số khối nằm TRÊN con trỏ (so tâm khối). */
+function insertionPos(cell, ev){
+  const blocksWrap = cell.querySelector(".blocks");
+  if (!blocksWrap) return 0;
+  const kids = [...blocksWrap.children].filter(el => el.classList.contains("blk"));
+  for (let k = 0; k < kids.length; k++){
+    const rc = kids[k].getBoundingClientRect();
+    if (ev.clientY < rc.top + rc.height / 2) return k;
+  }
+  return kids.length;
+}
+
+/* ---- HTML5 kéo–thả (chuột / trackpad) ---- */
+function onBlkDragStart(ev){
+  const blk = ev.target.closest(".blk");
+  if (!blk || !S.current){ if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "none"; return; }
+  S.dragBlk = { side: blk.dataset.side, row: parseInt(blk.dataset.row, 10), pos: parseInt(blk.dataset.pos, 10) };
+  blk.classList.add("dragsrc");
+  try {
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", "blk:" + blk.dataset.side);
+  } catch {}
+  document.body.classList.add("blkdragging");
+}
+function onBlkDragOver(ev){
+  if (!S.dragBlk) return;
+  const cell = ev.target.closest(".cell");
+  if (cell && cell.dataset.side === S.dragBlk.side){
+    // ô CÙNG ngôn ngữ — chèn vào vị trí con trỏ (kể cả ô "none" đang trống)
+    setDropHint({ type: "cell", side: S.dragBlk.side, row: parseInt(cell.dataset.row, 10), pos: insertionPos(cell, ev) });
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
     return;
   }
-  let count = 1;
-  if (S.sel.length > 1 && selContiguous() && S.sel[0] === i){
-    count = S.sel.length;
+  const rowEl = ev.target.closest(".row");
+  if (rowEl){
+    // thân hàng (số thứ tự / ô khác phía / khoảng trắng) — TÁCH khối thành hàng riêng tại đây
+    setDropHint({ type: "detach", afterRow: parseInt(rowEl.dataset.i, 10) });
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
   }
-  await mergeUp(i, count);
+}
+function cleanupBlkDrag(){
+  S.dragBlk = null;
+  S.dropHint = null;
+  document.body.classList.remove("blkdragging");
+  document.querySelectorAll("#rowsList .blk.dragsrc").forEach(el => el.classList.remove("dragsrc"));
+  clearDropHighlights();
+}
+function onBlkDrop(ev){
+  if (!S.dragBlk || !S.dropHint) return;
+  ev.preventDefault();
+  const b = S.dragBlk, h = S.dropHint;
+  cleanupBlkDrag();
+  if (h.type === "cell"){
+    moveBlock({ side: b.side, fromRow: b.row, fromPos: b.pos, toRow: h.row, toPos: h.pos },
+      `Đã chuyển khối vào hàng ${h.row + 1} — bấm ↻ Rescan LaBSE để chấm lại độ khớp.`);
+  } else {
+    moveBlock({ side: b.side, fromRow: b.row, fromPos: b.pos, toRow: null, afterRow: h.afterRow },
+      "Đã tách khối thành hàng riêng.");
+  }
+}
+
+/* ---- chọn khối + bấm ô đích (cảm ứng / bàn phím — không cần HTML5 drag) ---- */
+function paintBlkSel(){
+  document.querySelectorAll("#rowsList .blk.blksel").forEach(el => el.classList.remove("blksel"));
+  document.querySelectorAll("#rowsList .cell.droppable").forEach(el => el.classList.remove("droppable"));
+  if (!S.selBlk) return;
+  const el = document.querySelector(`#rowsList .blk[data-side="${S.selBlk.side}"][data-row="${S.selBlk.row}"][data-pos="${S.selBlk.pos}"]`);
+  if (el) el.classList.add("blksel");
+  document.querySelectorAll(`#rowsList .cell[data-side="${S.selBlk.side}"]`).forEach(c => c.classList.add("droppable"));
+}
+function selectBlk(side, row, pos, origIdx){
+  if (S.selBlk && S.selBlk.side === side && S.selBlk.row === row && S.selBlk.pos === pos){
+    S.selBlk = null; // bấm lại = bỏ chọn
+    paintBlkSel();
+    return;
+  }
+  S.selBlk = { side, row, pos };
+  paintBlkSel();
+  toast(`Đã chọn khối ${side.toUpperCase()}·${origIdx + 1} — bấm ô ${side.toUpperCase()} của hàng đích để chuyển đến, bấm thân hàng để tách riêng, hoặc Esc để bỏ chọn.`, "", 5200);
+}
+function rowsListClick(ev){
+  // 1) nút ⇥ tách khối thành hàng riêng
+  const det = ev.target.closest(".bdetach");
+  if (det){
+    const row = parseInt(det.dataset.row, 10);
+    moveBlock({ side: det.dataset.side, fromRow: row, fromPos: parseInt(det.dataset.pos, 10), toRow: null, afterRow: row }, "Đã tách khối thành hàng riêng.");
+    return;
+  }
+  // 2) nút ↻ Rescan LaBSE
+  const rs = ev.target.closest(".rescanbtn[data-rescan]");
+  if (rs){ rescanRow(parseInt(rs.dataset.rescan, 10)); return; }
+  // 3) khối: chọn / chuyển đến trước khối khác cùng phía
+  const blkEl = ev.target.closest(".blk");
+  if (blkEl){
+    const side = blkEl.dataset.side;
+    const row = parseInt(blkEl.dataset.row, 10);
+    const pos = parseInt(blkEl.dataset.pos, 10);
+    if (S.selBlk){
+      if (S.selBlk.side === side && S.selBlk.row === row && S.selBlk.pos === pos){
+        S.selBlk = null;
+        paintBlkSel();
+        return;
+      }
+      if (S.selBlk.side !== side){
+        toast("Khối chỉ chuyển được sang ô CÙNG ngôn ngữ — hãy thả vào ô " + side.toUpperCase() + " không phải ô đích.", "warn", 4600);
+        return;
+      }
+      moveBlock({ side: S.selBlk.side, fromRow: S.selBlk.row, fromPos: S.selBlk.pos, toRow: row, toPos: pos },
+        `Đã chuyển khối vào hàng ${row + 1} (trước khối ${pos + 1}).`);
+      return;
+    }
+    const orig = (segsOf(side, S.current.rows[row] || {})[pos] || {}).i;
+    selectBlk(side, row, pos, orig != null ? orig : pos);
+    return;
+  }
+  // 4) đang chọn khối + bấm ô cùng phía → chuyển đến CUỐI ô đó
+  if (S.selBlk){
+    const cell = ev.target.closest(".cell");
+    if (cell && cell.dataset.side === S.selBlk.side){
+      const row = parseInt(cell.dataset.row, 10);
+      moveBlock({ side: S.selBlk.side, fromRow: S.selBlk.row, fromPos: S.selBlk.pos, toRow: row, toPos: 9999 },
+        `Đã chuyển khối sang hàng ${row + 1}.`);
+      return;
+    }
+    const rowEl = ev.target.closest(".row");
+    if (rowEl && !ev.target.closest(".mk") && !ev.target.closest("button")){
+      const afterRow = parseInt(rowEl.dataset.i, 10);
+      moveBlock({ side: S.selBlk.side, fromRow: S.selBlk.row, fromPos: S.selBlk.pos, toRow: null, afterRow }, "Đã tách khối thành hàng riêng.");
+      return;
+    }
+  }
+  if (ev.target.id === "btnShowMore"){ renderCap += 600; renderRows(); }
+}
+function rowsListKeydown(ev){
+  const blk = ev.target.closest(".blk");
+  if (blk && (ev.key === "Enter" || ev.key === " ")){
+    ev.preventDefault();
+    const side = blk.dataset.side;
+    const row = parseInt(blk.dataset.row, 10);
+    const pos = parseInt(blk.dataset.pos, 10);
+    const orig = (segsOf(side, (S.current && S.current.rows[row]) || {})[pos] || {}).i;
+    selectBlk(side, row, pos, orig != null ? orig : pos);
+  }
 }
 
 /* ================= Phiên ================= */
 function newSession(keepText){
   S.current = null;
   S.filter = "all";
-  S.sel = [];
+  S.selBlk = null;
   render();
   if (!keepText){ /* giữ nguyên văn bản để chỉnh sửa rồi ghép lại */ }
   toast("Đã bắt đầu phiên làm việc mới. Văn bản hai bên được giữ lại để bạn chỉnh sửa — nhấn “Ghép đoạn” khi sẵn sàng.", "ok", 5200);
@@ -998,13 +1148,13 @@ async function openSession(id){
     const data = await api(`/api/sessions/${encodeURIComponent(id)}`);
     S.current = data;
     S.filter = "all";
-    S.sel = [];
+    S.selBlk = null;
     $("enText").value = (data.english || []).join("\n\n");
     $("viText").value = (data.vietnamese || []).join("\n\n");
     refreshCounts();
     render();
     closeDrawer();
-    toast(`Đã mở phiên ${id} — văn bản gốc được đưa về hai ô nhập.`, "ok", 4200);
+    toast(`Đã mở phiên ${id} — văn bản gốc được đưa về hai ô nhập. (Lịch sử hoàn tác không lưu qua lần mở lại.)`, "ok", 4200);
     $("resultsCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (e){ toast(e.message, "err"); }
 }
@@ -1070,7 +1220,7 @@ async function doExport(){
     const text = await res.text();
     const cd = res.headers.get("content-disposition") || "";
     const m = /filename="([^"]+)"/.exec(cd);
-    const name = m ? m[1] : `canh-doi-anh-viet-${cur.id}.txt`;
+    const name = m ? m[1] : `reva-tool-${cur.id}.txt`;
     const blob = new Blob([text], { type: res.headers.get("content-type") || "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -1114,7 +1264,7 @@ async function fetchUrl(side){
 /* ================= Selftest ================= */
 async function runSelftest(){
   $("stModal").classList.add("show");
-  $("stBody").innerHTML = `<p style="color:var(--muted)">Đang chạy 25 bài kiểm tra nội bộ…</p>`;
+  $("stBody").innerHTML = `<p style="color:var(--muted)">Đang chạy 30 bài kiểm tra nội bộ…</p>`;
   try {
     const d = await api("/api/selftest");
     const pills = `
@@ -1131,7 +1281,7 @@ async function runSelftest(){
       </div>`).join("");
     $("stBody").innerHTML = `<div class="st-summary">${pills}</div>` + items +
       (d.failed === 0
-        ? `<p style="color:var(--green);font-weight:700;margin:10px 2px">✓ Toàn bộ đạt — gồm 4 bài hồi quy (regression) cho lỗi “panic index 61”, “không ghép được bài thứ hai”, “nút Ghép bị mờ sau khi tải URL”, “tải URL mất mục danh sách &lt;li&gt;”, 1 bài tích hợp LaBSE (dịch vụ nhúng giả lập), 1 bài xuất CSV/HTML/XLIFF và 4 bài gộp hàng kéo–thả (1 EN ↔ nhiều VI).</p>`
+        ? `<p style="color:var(--green);font-weight:700;margin:10px 2px">✓ Toàn bộ đạt — gồm 4 bài hồi quy (regression) cho lỗi “panic index 61”, “không ghép được bài thứ hai”, “nút Ghép bị mờ sau khi tải URL”, “tải URL mất mục danh sách &lt;li&gt;”, 1 bài tích hợp LaBSE (dịch vụ nhúng giả lập), 1 bài xuất CSV/HTML/XLIFF, 4 bài gộp hàng (1 EN ↔ nhiều VI) và 5 bài mô hình khối bản 2.5 (kéo–thả tự do · hoàn tác/làm lại · tách khối · Rescan · xuất sau đổi thứ tự).</p>`
         : `<p style="color:var(--rose);font-weight:700;margin:10px 2px">✗ Có ${d.failed} bài lỗi — gửi kèm nội dung chi tiết này nếu cần hỗ trợ.</p>`);
   } catch (e){
     $("stBody").innerHTML = `<p style="color:var(--rose)">Không chạy được selftest: ${esc(e.message)}</p>`;
@@ -1214,40 +1364,24 @@ document.addEventListener("DOMContentLoaded", () => {
     setRowStatus(i, b.dataset.a);
   });
 
-  // ---- BẢN 2.4: grip chọn hàng / nút ⇡ Gộp / kéo–thả ----
+  // ---- BẢN 2.5: khối kéo–thả / chọn khối / rescan / hoàn tác ----
   const rowsList = $("rowsList");
-  rowsList.addEventListener("click", (ev) => {
-    const grip = ev.target.closest(".grip");
-    if (grip){
-      const i = parseInt(grip.closest(".row").dataset.i, 10);
-      toggleSel(i, ev.shiftKey);
-      return;
-    }
-    const mb = ev.target.closest(".railbtn[data-merge]");
-    if (mb){
-      onMergeBtn(parseInt(mb.dataset.merge, 10));
-      return;
-    }
-    if (ev.target.id === "btnShowMore"){ renderCap += 600; renderRows(); }
-  });
-  rowsList.addEventListener("keydown", (ev) => {
-    const grip = ev.target.closest(".grip");
-    if (grip && (ev.key === "Enter" || ev.key === " ")){
-      ev.preventDefault();
-      const i = parseInt(grip.closest(".row").dataset.i, 10);
-      toggleSel(i, ev.shiftKey);
-    }
-  });
-  rowsList.addEventListener("dragstart", onDragStart);
-  rowsList.addEventListener("dragover", onDragOver);
-  rowsList.addEventListener("drop", onDrop);
-  rowsList.addEventListener("dragend", cleanupDrag);
+  rowsList.addEventListener("click", rowsListClick);
+  rowsList.addEventListener("keydown", rowsListKeydown);
+  rowsList.addEventListener("dragstart", onBlkDragStart);
+  rowsList.addEventListener("dragover", onBlkDragOver);
+  rowsList.addEventListener("drop", onBlkDrop);
+  rowsList.addEventListener("dragend", cleanupBlkDrag);
   rowsList.addEventListener("dragleave", (ev) => {
     // rời khỏi vùng danh sách thì bỏ highlight
     if (!ev.relatedTarget || !rowsList.contains(ev.relatedTarget)){
-      document.querySelectorAll(".row.droptarget").forEach(el => el.classList.remove("droptarget"));
+      S.dropHint = null;
+      clearDropHighlights();
     }
   });
+
+  $("btnUndo").addEventListener("click", doUndo);
+  $("btnRedo").addEventListener("click", doRedo);
 
   $("enText").addEventListener("input", refreshCounts);
   $("viText").addEventListener("input", refreshCounts);
@@ -1264,7 +1398,26 @@ document.addEventListener("DOMContentLoaded", () => {
   $("thrAuto").addEventListener("input", () => { $("thrAutoVal").textContent = parseFloat($("thrAuto").value).toFixed(2); });
 
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){ e.preventDefault(); doAlign(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")){
+      e.preventDefault();
+      if (e.shiftKey) doRedo(); else doUndo();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y")){
+      e.preventDefault();
+      doRedo();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){
+      e.preventDefault();
+      doAlign();
+      return;
+    }
+    if (e.key === "Escape"){
+      if (S.selBlk){ S.selBlk = null; paintBlkSel(); }
+      closeDrawer();
+      $("stModal").classList.remove("show");
+    }
   });
 
   $("btnDrawer").addEventListener("click", openDrawer);
@@ -1288,8 +1441,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("stClose").addEventListener("click", () => $("stModal").classList.remove("show"));
   $("stRerun").addEventListener("click", runSelftest);
   $("stModal").addEventListener("click", (ev) => { if (ev.target === $("stModal")) $("stModal").classList.remove("show"); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape"){ closeDrawer(); $("stModal").classList.remove("show"); } });
-
   // khởi động
   (async () => {
     try {

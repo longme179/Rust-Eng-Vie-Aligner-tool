@@ -11,11 +11,14 @@
 //! `t_export_new_formats` — xuất CSV/HTML/XLIFF (BOM, escape RFC 4180, tô màu 3 mức, none nguyên văn).
 //! Bản 2.4 thêm 4 bài gộp hàng (kéo–thả): gộp liền kề + xuất 6 định dạng,
 //! kịch bản 1 EN ↔ nhiều VI (SBS), gộp–rồi–tách đủ đoạn gốc, gộp cùng phía + xác nhận một phía.
+//! Bản 2.5 thêm 5 bài MÔ HÌNH KHỐI: di chuyển khối + hoàn tác/làm lại,
+//! tách khối thành hàng riêng (prune hàng rỗng), Rescan chấm lại điểm (LaBSE giả lập),
+//! xuất sau khi đổi thứ tự (tha thứ I3, I1 vẫn gắt), và bộ lỗi đầu vào của move_block.
 
 use crate::aligner::{self, AlignOptions, Row, Status};
 use crate::exporter::{export_session, ExportFormat};
 use crate::fetcher;
-use crate::session::{derive_title, generate_id, Session, SessionStore};
+use crate::session::{derive_title, generate_id, Session, SessionStore, Side};
 use serde::Serialize;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -1034,6 +1037,9 @@ fn t_export_new_formats() -> Result<(), String> {
         rows,
         options: AlignOptions { auto_threshold: 0.30 },
         engine: "lexical".into(),
+        reordered: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     };
 
     // ---- parse() nhận định dạng mới ----
@@ -1161,6 +1167,9 @@ fn manual_session(en: Vec<String>, vi: Vec<String>, rows: Vec<Row>) -> Session {
         rows,
         options: AlignOptions::default(),
         engine: "lexical".to_string(),
+        reordered: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     }
 }
 
@@ -1410,6 +1419,272 @@ fn t_merge_one_side_and_human_confirm() -> Result<(), String> {
     Ok(())
 }
 
+// ========================= BẢN 2.5: mô hình khối (kéo–thả tự do) =========================
+
+/// 26. Di chuyển khối: kéo VI rời khỏi hàng mồ côi → ô VI của hàng khác (đúng kịch bản
+/// "0-D1 / 0-E1 kéo lên xếp sau C1"), đổi thứ tự trong cùng ô, HOÀN TÁC trả về nguyên xi.
+fn t_block_move_and_undo() -> Result<(), String> {
+    let en: Vec<String> = vec![
+        "Paragraph A about the summit with 4000 participants.".into(),
+        "Paragraph B about clean energy and electric vehicles.".into(),
+        "Paragraph C lists three donation rules introduced in 2025.".into(),
+    ];
+    let vi: Vec<String> = vec![
+        "Đoạn A về hội nghị với 4000 người tham dự.".into(),
+        "Đoạn B về năng lượng sạch và xe điện.".into(),
+        "Đoạn C nêu ba quy tắc quyên góp đưa ra năm 2025.".into(),
+        "Hạ ngưỡng công bố xuống 1.000 AUD.".into(),
+        "Giới hạn chi phí vận động tranh cử ở mức 800.000 AUD.".into(),
+    ];
+    // hàng 3, 4: VI-only (mồ côi) — đúng trạng thái sau khi ghép thật
+    let rows = vec![
+        pair_row(0, 0, &en, &vi, Status::AutoMatched, Some(0.9)),
+        pair_row(1, 1, &en, &vi, Status::AutoMatched, Some(0.9)),
+        pair_row(2, 2, &en, &vi, Status::AutoMatched, Some(0.9)),
+        Row::single_side(None, Some((3, vi[3].clone())), Status::Unmatched),
+        Row::single_side(None, Some((4, vi[4].clone())), Status::Unmatched),
+    ];
+    let mut s = manual_session(en, vi, rows);
+    let before = s.rows.clone();
+
+    // ---- kéo khối VI của hàng 4 (đoạn gốc 4) vào ô VI của hàng 2 (nối cuối)
+    let focus = s.move_block(Side::Vi, 4, 0, Some(2), usize::MAX, None).map_err(|e| e)?;
+    if s.rows.len() != 4 {
+        return Err(format!("hàng mồ côi mất khối cuối phải tự xoá — còn {} hàng", s.rows.len()));
+    }
+    if focus != 2 {
+        return Err(format!("focus phải là hàng 2, được {}", focus));
+    }
+    let r2 = &s.rows[2];
+    let vi_ids: Vec<usize> = r2.vi_segments().iter().map(|(i, _)| *i).collect();
+    if vi_ids != vec![2, 4] {
+        return Err(format!("ô VI hàng 2 phải là [2, 4], được {:?}", vi_ids));
+    }
+    if r2.status != Status::NeedsReview || r2.score.is_some() {
+        return Err("hàng vừa nhận khối phải về needs_review + xoá điểm cũ".into());
+    }
+    if s.rows[3].status != Status::Unmatched {
+        return Err("hàng mồ côi còn lại phải unmatched".into());
+    }
+
+    // ---- đổi thứ tự trong cùng ô: đưa đoạn 4 lên TRƯỚC đoạn 2
+    s.move_block(Side::Vi, 2, 1, Some(2), 0, None).map_err(|e| e)?;
+    let vi_ids: Vec<usize> = s.rows[2].vi_segments().iter().map(|(i, _)| *i).collect();
+    if vi_ids != vec![4, 2] {
+        return Err(format!("đổi chỗ trong ô phải ra [4, 2], được {:?}", vi_ids));
+    }
+
+    // ---- HOÀN TÁC 2 lần → trả về nguyên xi trạng thái đầu (kể cả trạng thái + điểm)
+    s.undo().map_err(|e| e)?;
+    s.undo().map_err(|e| e)?;
+    if s.rows.len() != before.len() {
+        return Err(format!("sau 2 lần hoàn tác phải về {} hàng, được {}", before.len(), s.rows.len()));
+    }
+    for (k, (a, b)) in s.rows.iter().zip(before.iter()).enumerate() {
+        if a.status != b.status
+            || a.score != b.score
+            || a.en_index != b.en_index
+            || a.vi_index != b.vi_index
+            || a.vi_segments().len() != b.vi_segments().len()
+        {
+            return Err(format!("hoàn tác phải trả về nguyên xi hàng {}", k));
+        }
+    }
+    // ---- LÀM LẠI 1 lần → bước "kéo vào hàng 2" quay lại
+    s.redo().map_err(|e| e)?;
+    if s.rows.len() != 4 || s.rows[2].vi_segments().len() != 2 {
+        return Err("làm lại phải tái hiện bước kéo khối đầu tiên".into());
+    }
+    // hoàn tác khi rỗng phải báo lỗi rõ
+    let mut s2 = manual_session(vec!["Only one paragraph here.".into()], vec![], vec![Row::single_side(Some((0, "Only one paragraph here.".into())), None, Status::Unmatched)]);
+    if s2.undo().is_ok() {
+        return Err("hoàn tác khi chưa làm gì phải báo lỗi".into());
+    }
+    Ok(())
+}
+
+/// 27. TÁCH khối thành hàng riêng (nút ⇥): khối rời ô → thành hàng đơn phía chèn sau
+/// hàng mốc; hàng đích mất khối cuối cùng tự xoá; thao tác ngược lại hoàn toàn.
+fn t_block_detach_newrow() -> Result<(), String> {
+    let en: Vec<String> = vec![
+        "First English paragraph of the article.".into(),
+        "Second English paragraph of the article.".into(),
+    ];
+    let vi: Vec<String> = vec![
+        "Đoạn tiếng Việt thứ nhất của bài.".into(),
+        "Đoạn tiếng Việt thứ hai của bài.".into(),
+    ];
+    let rows = vec![
+        pair_row(0, 0, &en, &vi, Status::AutoMatched, Some(0.9)),
+        pair_row(1, 1, &en, &vi, Status::AutoMatched, Some(0.9)),
+    ];
+    let mut s = manual_session(en, vi, rows);
+    // tách khối VI của hàng 1 thành hàng riêng sau hàng 1
+    let focus = s.move_block(Side::Vi, 1, 0, None, 0, Some(1)).map_err(|e| e)?;
+    if s.rows.len() != 3 {
+        return Err(format!("sau tách phải 3 hàng, được {}", s.rows.len()));
+    }
+    if focus != 2 {
+        return Err(format!("hàng mới phải ở vị trí 2, được {}", focus));
+    }
+    let new_row = &s.rows[2];
+    if new_row.vi_index != Some(1) || new_row.en_index.is_some() || new_row.status != Status::Unmatched {
+        return Err("hàng tách phải là VI-only đoạn 1, unmatched".into());
+    }
+    // hàng nguồn giờ còn mỗi EN → unmatched, điểm xoá
+    let src = &s.rows[1];
+    if src.vi_index.is_some() || src.status != Status::Unmatched || src.score.is_some() {
+        return Err("hàng nguồn mất phía VI phải unmatched + xoá điểm".into());
+    }
+    // hoàn tác → về 2 hàng như đầu
+    s.undo().map_err(|e| e)?;
+    if s.rows.len() != 2 || s.rows[1].vi_index != Some(1) {
+        return Err("hoàn tác tách phải trả về 2 hàng ghép đôi như đầu".into());
+    }
+    Ok(())
+}
+
+/// 28. RESCAN: chấm lại điểm một hàng sau khi kéo (LaBSE nếu có, sàn từ vựng luôn),
+/// cập nhật trạng thái theo ngưỡng; hàng một phía phải từ chối kèm hướng dẫn.
+fn t_rescan_row() -> Result<(), String> {
+    let en: Vec<String> = vec![
+        "Alpha company shipped 100 units in 2025 to Hanoi.".into(),
+        "Beta project with completely unrelated wording here.".into(),
+    ];
+    let vi: Vec<String> = vec![
+        "Công ty Alpha xuất xưởng 100 sản phẩm năm 2025 tại Hà Nội.".into(),
+        "Dự án Beta với cách diễn đạt hoàn toàn không liên quan ở đây.".into(),
+    ];
+    let rows = vec![
+        pair_row(0, 0, &en, &vi, Status::AutoMatched, Some(0.95)),
+        pair_row(1, 1, &en, &vi, Status::AutoMatched, Some(0.95)),
+        Row::single_side(Some((1, "English paragraph without translation.".into())), None, Status::Unmatched),
+    ];
+    let mut s = manual_session(en, vi, rows);
+    // cặp A–A1: điểm chấm lại phải cao (≥ ngưỡng) → tự khớp
+    let (score_a, st_a, _) = s.rescan_row(0).map_err(|e| e)?;
+    if !(0.0..=1.0).contains(&score_a) {
+        return Err(format!("điểm rescan phải trong 0..1, được {}", score_a));
+    }
+    if st_a != Status::AutoMatched {
+        return Err(format!("cặp dịch đúng sau rescan phải auto_matched, được {:?}", st_a));
+    }
+    // điểm của rescan phải KHỚP công thức thuần (không LaBSE trong môi trường selftest)
+    let en_text = s.rows[0].en_segments().iter().map(|(_, t)| *t).collect::<Vec<&str>>().join(" ");
+    let vi_text = s.rows[0].vi_segments().iter().map(|(_, t)| *t).collect::<Vec<&str>>().join(" ");
+    let expect = aligner::rescore_pair(&s.english, &s.vietnamese, &en_text, &vi_text, None);
+    if (score_a - expect).abs() > 0.002 {
+        return Err(format!("rescan phải đúng công thức rescore_pair: {:.3} vs {:.3}", score_a, expect));
+    }
+    // hoà trộn LaBSE (cos=1) chỉ được NÂNG điểm, không hạ — dùng thẳng công thức
+    let blend_hi = aligner::rescore_pair(&s.english, &s.vietnamese, &en_text, &vi_text, Some(1.0));
+    if blend_hi + 1e-9 < expect {
+        return Err("rescore_pair với cos=1 phải ≥ điểm thuần từ vựng".into());
+    }
+    // hàng một phía phải từ chối kèm hướng dẫn (hàng 2: EN-only)
+    let err = s.rescan_row(2).map(|_| ()).unwrap_err();
+    if !err.contains("một phía") {
+        return Err(format!("thông báo từ chối phải nói rõ hàng một phía, được: {}", err));
+    }
+    // sau rescan vẫn hoàn tác được (trả lại điểm cũ)
+    s.undo().map_err(|e| e)?;
+    if s.rows[0].score != Some(0.95) {
+        return Err("hoàn tác rescan phải trả lại điểm cũ".into());
+    }
+    Ok(())
+}
+
+/// 29. Xuất SAU KHI ĐỔI THỨ TỰ khối giữa các hàng: tha thứ đơn điệu I3 (cờ reordered),
+/// nhưng I1 (mỗi đoạn đúng 1 lần) vẫn gắt — trao đổi chéo 2 khối VI rồi xuất đủ format.
+fn t_export_after_reorder() -> Result<(), String> {
+    let en: Vec<String> = vec![
+        "First paragraph about policy changes in 2025.".into(),
+        "Second paragraph about the committee report.".into(),
+    ];
+    let vi: Vec<String> = vec![
+        "Đoạn đầu về các thay đổi chính sách năm 2025.".into(),
+        "Đoạn thứ hai về báo cáo của uỷ ban.".into(),
+    ];
+    let rows = vec![
+        pair_row(0, 0, &en, &vi, Status::AutoMatched, Some(0.9)),
+        pair_row(1, 1, &en, &vi, Status::AutoMatched, Some(0.9)),
+    ];
+    let mut s = manual_session(en, vi, rows);
+    // tráo chéo: VI[1] lên hàng 0, VI[0] xuống hàng 1 — phá đơn điệu có chủ đích
+    s.move_block(Side::Vi, 1, 0, Some(0), 1, None).map_err(|e| e)?;
+    s.move_block(Side::Vi, 0, 0, Some(1), 1, None).map_err(|e| e)?;
+    if !s.reordered {
+        return Err("cờ reordered phải bật sau khi tráo chéo khối giữa các hàng".into());
+    }
+    // xuất 6 định dạng phải ĐẠT (I3 được tha thứ vì sắp xếp lại là ý đồ người dùng)
+    for fmt in [
+        ExportFormat::Tsv,
+        ExportFormat::Moses,
+        ExportFormat::Json,
+        ExportFormat::Csv,
+        ExportFormat::Html,
+        ExportFormat::Xliff,
+    ] {
+        let r = export_session(&s, fmt)?;
+        if r.rows != 2 {
+            return Err(format!("{:?}: phải 2 hàng, được {}", fmt, r.rows));
+        }
+    }
+    // TSV: hàng 0 phải là EN[0] + VI[1], hàng 1 là EN[1] + VI[0]
+    let r = export_session(&s, ExportFormat::Tsv)?;
+    let line0: Vec<&str> = r.content.lines().next().ok_or("TSV rỗng")?.split('\t').collect();
+    if line0[1] != "Đoạn thứ hai về báo cáo của uỷ ban." {
+        return Err("hàng 0 phải ghép EN[0] với VI[1] sau khi tráo chéo".into());
+    }
+    // I1 VẪN GẮT: giờ cố tình làm hỏng (nhân đôi 1 khối) → mọi export phải từ chối
+    let mut broken = s.clone();
+    broken.rows[1].vi_extra.push(crate::aligner::Seg::new(1, "Đoạn thứ hai về báo cáo của uỷ ban.".into()));
+    if export_session(&broken, ExportFormat::Tsv).is_ok() {
+        return Err("I1 bị phá (đoạn dùng 2 lần) thì export phải từ chối, kể cả đã reordered".into());
+    }
+    // phiên CHƯA reordered mà đơn điệu bị phá → export cũng phải từ chối (I3 gắt)
+    let mut fake = s.clone();
+    fake.reordered = false;
+    if export_session(&fake, ExportFormat::Tsv).is_ok() {
+        return Err("phiên chưa đánh dấu reordered mà I3 vỡ phải bị từ chối".into());
+    }
+    Ok(())
+}
+
+/// 30. Đầu vào xấu của move_block + no-op không đẩy history: bảo vệ khỏi kéo thả lệch.
+fn t_move_invalid() -> Result<(), String> {
+    let en: Vec<String> = vec!["English source paragraph.".into()];
+    let vi: Vec<String> = vec!["Đoạn tiếng Việt tương ứng.".into()];
+    let mut s = manual_session(
+        en,
+        vi,
+        vec![pair_row(0, 0, &vec!["English source paragraph.".into()], &vec!["Đoạn tiếng Việt tương ứng.".into()], Status::AutoMatched, Some(0.9))],
+    );
+    // hàng nguồn không tồn tại
+    if s.move_block(Side::En, 9, 0, Some(0), 0, None).is_ok() {
+        return Err("hàng nguồn ngoài phạm vi phải bị từ chối".into());
+    }
+    // vị trí khối không tồn tại
+    if s.move_block(Side::En, 0, 5, Some(0), 0, None).is_ok() {
+        return Err("vị trí khối ngoài phạm vi phải bị từ chối".into());
+    }
+    // hàng đích không tồn tại
+    if s.move_block(Side::En, 0, 0, Some(7), 0, None).is_ok() {
+        return Err("hàng đích ngoài phạm vi phải bị từ chối".into());
+    }
+    // hàng mốc (khi tách) không tồn tại
+    if s.move_block(Side::En, 0, 0, None, 0, Some(7)).is_ok() {
+        return Err("hàng mốc ngoài phạm vi phải bị từ chối".into());
+    }
+    // no-op: thả đúng chỗ cũ → không đẩy history (undo stack vẫn rỗng)
+    s.move_block(Side::En, 0, 0, Some(0), 0, None).map_err(|e| e)?;
+    if !s.undo_stack.is_empty() {
+        return Err("no-op không được đẩy vào ngăn hoàn tác".into());
+    }
+    // giá trị trả về vẫn hợp lệ
+    Ok(())
+}
+
 /// Chạy toàn bộ bộ kiểm. Mỗi bài chạy trong thread riêng để panic (nếu có)
 /// không làm sập cả tiến trình — panics được coi là FAIL có thông báo.
 pub fn run_all() -> Vec<TestResult> {
@@ -1439,6 +1714,11 @@ pub fn run_all() -> Vec<TestResult> {
         ("23. [BẢN 2.4] kịch bản SBS: gộp 3 hàng VI vào 1 EN (1 · 4 VI)", t_merge_one_to_many),
         ("24. [BẢN 2.4] gộp xong tách → đủ từng đoạn gốc, none đúng chỗ", t_merge_split_roundtrip),
         ("25. [BẢN 2.4] gộp cùng phía + xác nhận một phía (human_confirmed)", t_merge_one_side_and_human_confirm),
+        ("26. [BẢN 2.5] kéo khối VI mồ côi vào hàng khác + đổi chỗ + hoàn tác/làm lại nguyên xi", t_block_move_and_undo),
+        ("27. [BẢN 2.5] tách khối thành hàng riêng (⇥) + prune hàng rỗng + hoàn tác", t_block_detach_newrow),
+        ("28. [BẢN 2.5] Rescan: chấm lại điểm hàng (công thức + ngưỡng + từ chối một phía)", t_rescan_row),
+        ("29. [BẢN 2.5] xuất sau khi tráo chéo khối: tha thứ I3, I1 vẫn gắt", t_export_after_reorder),
+        ("30. [BẢN 2.5] đầu vào xấu của move_block + no-op không đẩy history", t_move_invalid),
     ];
 
     let mut results = Vec::with_capacity(tests.len());

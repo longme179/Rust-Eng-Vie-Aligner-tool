@@ -13,8 +13,12 @@
 //! * CSV: các đoạn gộp nằm trong CÙNG MỘT Ô, mỗi đoạn một dòng (trích dẫn RFC 4180).
 //! * JSON: `en`/`vi` nối bằng dấu cách + kèm `enParts`/`viParts` khi >1 đoạn.
 //! * HTML: mỗi đoạn gộp một dòng trong ô, kèm nhãn số đoạn gốc.
+//!
+//! BẢN 2.5 — phiên đã kéo–thả ĐỔI THỨ TỰ khối (cờ `reordered`): bỏ kiểm đơn điệu I3
+//! khi xuất (người dùng sắp xếp lại CÓ CHỦ ĐÍCH) — I1/I2/I4/I5 và quy ước `none`
+//! vẫn kiểm gắt như cũ. Thứ tự xuất = thứ tự khối hiển thị trên giao diện.
 
-use crate::aligner::{validate_invariants, AlignOutput, Row, Status};
+use crate::aligner::{validate_invariants_opts, AlignOutput, Row, Status};
 use crate::session::Session;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -180,7 +184,9 @@ pub struct ExportResult {
     pub none_count: usize,
 }
 
-/// Xuất phiên hiện tại. Kiểm tra 5 bất biến trước khi xuất.
+/// Xuất phiên hiện tại. Kiểm tra bất biến trước khi xuất:
+/// I1/I2/I4/I5 luôn gắt; riêng I3 (đơn điệu) chỉ bắt khi phiên CHƯA bị kéo–thả
+/// đổi thứ tự khối (bản 2.5 — sắp xếp lại là ý đồ người dùng, không phải lỗi).
 pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportResult, String> {
     // ---- I5 + I1..I4: kiểm tra trước khi xuất
     let out = AlignOutput {
@@ -190,7 +196,7 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
         options: session.options.clone(),
         engine: session.engine.clone(),
     };
-    validate_invariants(&out)?;
+    validate_invariants_opts(&out, !session.reordered)?;
 
     let mut none_count = 0usize;
     let mut body = String::new();
@@ -269,7 +275,7 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                 })
                 .collect();
             let doc = serde_json::json!({
-                "tool": "canh-doi-anh-viet",
+                "tool": "reva-tool",
                 "version": env!("CARGO_PKG_VERSION"),
                 "session": {
                     "id": session.id,
@@ -297,7 +303,7 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                     "<!DOCTYPE html>\n",
                     "<html lang=\"vi\">\n<head>\n<meta charset=\"utf-8\">\n",
                     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n",
-                    "<title>Cánh đôi Anh–Việt — Phiên {sid}</title>\n",
+                    "<title>REVA tool — Phiên {sid}</title>\n",
                     "<style>\n",
                     ":root{{--green:#047857;--green-bg:#ecfdf5;--yellow:#b45309;--yellow-bg:#fffbeb;--red:#be123c;--red-bg:#fff1f2;--line:#e5e7eb;--muted:#6b7280}}\n",
                     "*{{box-sizing:border-box}}\n",
@@ -323,8 +329,8 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                     "span.mg{{display:inline-block;font-size:10.5px;font-weight:800;color:#7c2d12;background:#ffedd5;border:1px solid #fed7aa;border-radius:99px;padding:1px 9px;margin-bottom:4px}}\n",
                     "footer{{margin-top:18px;color:var(--muted);font-size:12px}}\n",
                     "</style>\n</head>\n<body>\n<main>\n",
-                    "<h1>Cánh đôi Anh–Việt — kết quả ghép đoạn</h1>\n",
-                    "<p class=\"meta\">Phiên <b>{sid}</b> · {title} · xuất lúc {when} · công cụ canh-doi-anh-viet v{ver}</p>\n",
+                    "<h1>REVA tool — kết quả ghép đoạn</h1>\n",
+                    "<p class=\"meta\">Phiên <b>{sid}</b> · {title} · xuất lúc {when} · công cụ reva-tool v{ver}</p>\n",
                     "<p class=\"legend\"><span class=\"lg-g\">■ Khớp / khớp phần lớn ({ng})</span><span class=\"lg-y\">■ Cần soát / khớp một phần ({ny})</span><span class=\"lg-r\">■ Không khớp hoàn toàn ({nr})</span></p>\n",
                     "<table>\n<thead><tr><th>#</th><th>Tiếng Anh</th><th>Tiếng Việt</th><th>Trạng thái</th></tr></thead>\n<tbody>\n"
                 ),
@@ -416,7 +422,7 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                 "<xliff xmlns=\"urn:oasis:names:tc:xliff:document:1.2\" version=\"1.2\">\n"
             ));
             body.push_str(&format!(
-                " <file original=\"canh-doi-anh-viet-{id}\" source-language=\"en\" target-language=\"vi\" datatype=\"plaintext\" tool=\"canh-doi-anh-viet v{ver}\">\n",
+                " <file original=\"reva-tool-{id}\" source-language=\"en\" target-language=\"vi\" datatype=\"plaintext\" tool=\"reva-tool v{ver}\">\n",
                 id = xml_escape(&session.id),
                 ver = env!("CARGO_PKG_VERSION"),
             ));
@@ -457,7 +463,7 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
     }
 
     Ok(ExportResult {
-        filename: format!("canh-doi-anh-viet-{}.{}", session.id, format.ext()),
+        filename: format!("reva-tool-{}.{}", session.id, format.ext()),
         mime: format.mime().to_string(),
         content: body,
         rows: session.rows.len(),

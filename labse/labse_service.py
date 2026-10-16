@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""labse_service.py — dịch vụ nhúng câu LaBSE cục bộ cho "Cánh đôi Anh–Việt".
+"""labse_service.py — dịch vụ nhúng câu LaBSE cục bộ cho REVA tool (tiền thân: Cánh đôi Anh–Việt).
 
 Chạy 100% trên máy bạn (không gửi văn bản đi đâu):
   * Nạp model LaBSE (sentence-transformers/LaBSE, ~1.8 GB, tải 1 lần rồi cache).

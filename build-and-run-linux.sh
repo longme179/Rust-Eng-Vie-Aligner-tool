@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Cánh đôi Anh–Việt — BUILD & CHẠY (Linux)
+# REVA tool — BUILD & CHẠY (Linux)
 # Dùng: mở terminal trong thư mục này rồi chạy:   bash build-and-run-linux.sh
 #
 # Script này TỰ LÀM 5 việc:
@@ -11,13 +11,13 @@
 #   5. Chạy app tại http://localhost:3000 — nhấn Ctrl+C để dừng
 #
 # Chạy lại lần sau: script bỏ qua phần đã cài, chỉ build+nạy nhanh.
-# Không muốn LaBSE? Vẫn chạy được: ./target/release/canh-doi-anh-viet
+# Không muốn LaBSE? Vẫn chạy được: ./target/release/reva-tool
 # (app sẽ ghép bằng bộ từ vựng và báo "Chỉ từ vựng — chưa bật LaBSE").
 # ============================================================================
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "== Cánh đôi Anh–Việt — build & chạy (Linux) =="
+echo "== REVA tool — build & chạy (Linux) =="
 
 # ---------- 1) Rust ----------
 if ! command -v cargo >/dev/null 2>&1; then
@@ -62,8 +62,8 @@ echo "» Chờ LaBSE nạp model (lần đầu sau khi cài có thể vài phút
 python labse/wait_health.py
 
 # ---------- 5) chạy app ----------
-export CANH_DOI_LABSE_URL="http://127.0.0.1:3031"
+export REVA_LABSE_URL="http://127.0.0.1:3031"
 trap 'echo "» Đang dừng dịch vụ LaBSE…"; [ -f labse-service.pid ] && kill "$(cat labse-service.pid)" 2>/dev/null || true' EXIT
 ( sleep 2; xdg-open "http://localhost:3000" >/dev/null 2>&1 || true ) &
 echo "» App chạy tại http://localhost:3000 — nhấn Ctrl+C để dừng (LaBSE cũng được dừng theo)."
-./target/release/canh-doi-anh-viet
+./target/release/reva-tool

@@ -4,7 +4,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 rem ============================================================================
-rem  Cánh đôi Anh–Việt — BUILD & CHẠY (Windows)
+rem  REVA tool — BUILD & CHẠY (Windows)
 rem  Dùng: nháy đúp file này, hoặc mở CMD/PowerShell trong thư mục rồi chạy:
 rem        build-and-run-windows.bat
 rem
@@ -94,8 +94,8 @@ if errorlevel 1 (
 rem ---------- 5) chạy app ----------
 echo [5/5] Mở http://localhost:3000 — nhấn Ctrl+C trong cửa sổ này để dừng app.
 start "" http://localhost:3000
-set "CANH_DOI_LABSE_URL=http://127.0.0.1:3031"
-"%~dp0target\release\canh-doi-anh-viet.exe"
+set "REVA_LABSE_URL=http://127.0.0.1:3031"
+"%~dp0target\release\reva-tool.exe"
 echo.
 echo App đã dừng. Cửa sổ LaBSE (thu nhỏ) có thể vẫn đang chạy —
 echo đóng cửa sổ đó khi bạn muốn dừng hẳn dịch vụ LaBSE.

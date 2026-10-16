@@ -437,7 +437,12 @@ impl Side {
 fn score_pair(en: &Side, vi: &Side, i: usize, j: usize) -> f64 {
     let pe = en.ptoks.get(i).expect("ptoks[i] hợp lệ");
     let pv = vi.ptoks.get(j).expect("ptoks[j] hợp lệ");
+    score_tokens(pe, pv, en, vi)
+}
 
+/// Lõi chấm điểm: cosine từ vựng có idf + từ điển Anh→Việt + số câu, trên 2 ParaTokens
+/// bất kỳ (tách ra từ score_pair để tái dùng cho RESCAN bản 2.5 — cùng công thức).
+fn score_tokens(pe: &ParaTokens, pv: &ParaTokens, en: &Side, vi: &Side) -> f64 {
     // ---- trọng số phía Việt
     let mut w_vi: HashMap<String, f64> = HashMap::new();
     let mut norm_vi = 0.0f64;
@@ -734,15 +739,50 @@ pub fn align_with_emb(
     Ok(out)
 }
 
+// ========================= Chấm lại điểm một hàng (bản 2.5) =========================
+
+/// RESCAN: chấm lại điểm tương đồng cho MỘT HÀNG sau khi người dùng kéo–thả khối.
+/// * `en_paras`/`vi_paras`: TOÀN BỘ đoạn của phiên (để idf đúng như lúc ghép gốc —
+///   chữ hiếm vẫn nặng hơn chữ phổ thông).
+/// * `en_text`/`vi_text`: văn bản của hàng (các khối nối bằng dấu cách).
+/// * `emb_cos`: cosine LaBSE giữa hai văn bản đó (nếu dịch vụ nhúng chạy).
+///
+/// Thuật toán GHÉP không đổi — đây là hàm thuần túy dùng lại đúng lõi `score_tokens`
+/// + công thức hoà trộn `blend_with_emb` (LaBSE chỉ NÂNG, không HẠ).
+pub fn rescore_pair(
+    en_paras: &[String],
+    vi_paras: &[String],
+    en_text: &str,
+    vi_text: &str,
+    emb_cos: Option<f64>,
+) -> f64 {
+    let en_side = Side::build(en_paras);
+    let vi_side = Side::build(vi_paras);
+    let pe = ParaTokens::build(en_text);
+    let pv = ParaTokens::build(vi_text);
+    let composite = score_tokens(&pe, &pv, &en_side, &vi_side);
+    match emb_cos {
+        Some(c) => blend_with_emb(composite, c),
+        None => composite,
+    }
+}
+
 // ========================= Bất biến (5 điều) =========================
 
 /// 5 bất biến bắt buộc:
 /// I1. Mỗi đoạn tiếng Anh được dùng đúng 1 lần.
 /// I2. Mỗi đoạn tiếng Việt được dùng đúng 1 lần.
-/// I3. Ghép đơn điệu — không giao nhau.
+/// I3. Ghép đơn điệu — không giao nhau (BỎ QUA cho phiên đã kéo–thả đổi thứ tự, bản 2.5).
 /// I4. Trạng thái thuộc 4 giá trị chuẩn; `unmatched` ⟺ thiếu đúng một bên.
 /// I5. (kiểm tại export) bên thiếu ghi đúng chữ `none`; không bỏ sót đoạn nào.
 pub fn validate_invariants(out: &AlignOutput) -> Result<(), String> {
+    validate_invariants_opts(out, true)
+}
+
+/// Bản có cờ: `monotonic = false` tha thứ I3 (người dùng CÓ CHỦ ĐÍCH kéo–thả đổi thứ
+/// tự khối giữa các hàng — cờ `reordered` của phiên) — I1/I2/I4/I5 vẫn kiểm gắt,
+/// và cả chiều "hàng rỗng" / "unmatched mà đủ hai bên" vẫn bắt lỗi như cũ.
+pub fn validate_invariants_opts(out: &AlignOutput, monotonic: bool) -> Result<(), String> {
     let n = out.english.len();
     let m = out.vietnamese.len();
     let mut seen_en = vec![false; n];
@@ -781,7 +821,7 @@ pub fn validate_invariants(out: &AlignOutput) -> Result<(), String> {
                 row.index, row.status
             ));
         }
-        // I1 + I3 (phía Anh) — tính cả các đoạn gộp (en_extra)
+        // I1 (+ I3 nếu bắt buộc) — phía Anh — tính cả các đoạn gộp (en_extra)
         for (a, _t) in row.en_segments() {
             if a >= n {
                 return Err(format!("hàng {}: en_index {} >= {}", row.index, a, n));
@@ -790,14 +830,16 @@ pub fn validate_invariants(out: &AlignOutput) -> Result<(), String> {
                 return Err(format!("đoạn tiếng Anh thứ {} bị dùng 2 lần", a));
             }
             seen_en[a] = true;
-            if let Some(le) = last_en {
-                if a <= le {
-                    return Err(format!("I3: đoạn tiếng Anh không đơn điệu tại {}", a));
+            if monotonic {
+                if let Some(le) = last_en {
+                    if a <= le {
+                        return Err(format!("I3: đoạn tiếng Anh không đơn điệu tại {}", a));
+                    }
                 }
             }
             last_en = Some(a);
         }
-        // I2 + I3 (phía Việt) — tính cả các đoạn gộp (vi_extra)
+        // I2 (+ I3 nếu bắt buộc) — phía Việt — tính cả các đoạn gộp (vi_extra)
         for (b, _t) in row.vi_segments() {
             if b >= m {
                 return Err(format!("hàng {}: vi_index {} >= {}", row.index, b, m));
@@ -806,9 +848,11 @@ pub fn validate_invariants(out: &AlignOutput) -> Result<(), String> {
                 return Err(format!("đoạn tiếng Việt thứ {} bị dùng 2 lần", b));
             }
             seen_vi[b] = true;
-            if let Some(lv) = last_vi {
-                if b <= lv {
-                    return Err(format!("I3: đoạn tiếng Việt không đơn điệu tại {}", b));
+            if monotonic {
+                if let Some(lv) = last_vi {
+                    if b <= lv {
+                        return Err(format!("I3: đoạn tiếng Việt không đơn điệu tại {}", b));
+                    }
                 }
             }
             last_vi = Some(b);

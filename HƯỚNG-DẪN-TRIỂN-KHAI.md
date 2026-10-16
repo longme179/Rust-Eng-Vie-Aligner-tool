@@ -1,20 +1,17 @@
-# HƯỚNG DẪN TRIỂN KHAI — Cánh đôi Anh–Việt v2.4
+# HƯỚNG DẪN TRIỂN KHAI — REVA tool v2.5
 
-> Công cụ ghép đoạn văn bản Anh–Việt, 1 chương trình duy nhất, chạy cục bộ 100%.
+> Công cụ ghép & sắp đoạn văn bản Anh–Việt (tiền thân: **Cánh đôi Anh–Việt**), 1 chương trình duy nhất, chạy cục bộ 100%.
 > **Từ v2.2 không còn binary dựng sẵn** — mỗi hệ điều hành có **một file lệnh duy nhất**
 > đem vào terminal là tự build + tự chạy (người dùng tự compile từ mã nguồn, nhờ đó
 > **LaBSE — mấu chốt để ghép chính xác — luôn đầy đủ**).
 >
-> **v2.4 thêm kéo–thả gộp hàng**: báo Anh viết liền 1 đoạn nhưng bản dịch tách thành
-> danh sách? Kéo ô `⠿` của các hàng dưới thả vào hàng trên để gộp chung (được cả chọn
-> vùng nhiều hàng liền kề bằng Shift) rồi đánh dấu Khớp / Cần soát. Nút `⇡ Gộp` bên trái
-> mỗi hàng là phím tắt cảm ứng. Xuất file giữ đúng hàng gộp (CSV: nhiều dòng trong một ô).
-> **v2.3 sửa**: tải URL giờ lấy đủ mục danh sách (gạch đầu dòng) — trước đây chỉ lấy
-> được câu dẫn (vd bài SBS chỉ còn "bao gồm:" mà mất 3 gạch đầu dòng). **v2.3 thêm**:
-> tô màu hàng 3 mức (xanh/vàng/đỏ), đúng 3 nút đánh dấu, xuất CSV/HTML/XLIFF.
-> **v2.2 sửa**: bảng kết quả nhiều hàng bị nén cực hẹp, chữ bị cắt → đã hết
-> (hàng giữ chiều cao tự nhiên, khung cuộn dọc). **v2.2 thêm**: LaBSE tuỳ chọn
-> (huy hiệu động cơ trên đầu trang), script build cho Windows/macOS/Linux.
+> **v2.5 — MÔ HÌNH KHỐI**: sau khi ghép, **mỗi đoạn văn là một khối 🧩** co giãn theo độ lớn chữ.
+> Kéo khối vào ô cùng ngôn ngữ của HÀNG BẤT KỲ (ví dụ kéo D1, E1 lên chung sau C1), **đổi thứ tự tuỳ ý**,
+> thả vào thân hàng (hoặc bấm `⇥`) để **tách thành hàng riêng**. Kéo nhầm thì **Ctrl+Z hoàn tác**
+> (40 bước gần nhất, bao trùm mọi thao tác). Mỗi hàng có nút **`↻ Rescan LaBSE`** chấm lại độ khớp sau khi sắp xếp.
+> **v2.4**: gộp hàng liền kề (API `/merge` vẫn giữ). **v2.3**: tải URL lấy đủ mục danh sách `<li>`,
+> tô màu hàng 3 mức (xanh/vàng/đỏ), đúng 3 nút đánh dấu, xuất CSV/HTML/XLIFF. **v2.2**: LaBSE tuỳ chọn
+> (huy hiệu động cơ trên đầu trang), script build cho Windows/macOS/Linux, hết lỗi hàng bị nén hẹp.
 
 ---
 
@@ -51,8 +48,8 @@ File lệnh tự làm 5 việc:
 Chạy đúng thì thấy:
 
 ```
-[canh-doi-anh-viet] chạy tại http://localhost:3000 (giao diện + API, tất cả cục bộ)
-[canh-doi-anh-viet] LaBSE (tuỳ chọn): http://127.0.0.1:3031 — …
+[reva-tool] chạy tại http://localhost:3000 (giao diện + API, tất cả cục bộ)
+[reva-tool] LaBSE (tuỳ chọn): http://127.0.0.1:3031 — …
 ```
 
 và huy hiệu trên đầu trang là **“Từ vựng + LaBSE — chính xác cao”** (chấm xanh lá).
@@ -61,8 +58,9 @@ và huy hiệu trên đầu trang là **“Từ vựng + LaBSE — chính xác c
 
 Chạy lại đúng file lệnh đó — gần như tức thì (build tăng dần, Python/model đã có sẵn).
 Muốn KHÔNG dùng LaBSE (máy yếu, không muốn cài Python): chạy thẳng binary
-`target/release/canh-doi-anh-viet` — app vẫn hoạt động, huy hiệu báo
-“Chỉ từ vựng — chưa bật LaBSE” (chấm hổ phách) và ghép bằng bộ từ vựng.
+`target/release/reva-tool` — app vẫn hoạt động, huy hiệu báo
+“Chỉ từ vựng — chưa bật LaBSE” (chấm hổ phách) và ghép bằng bộ từ vựng
+(nút **Rescan** cũng vẫn chấm được bằng từ vựng).
 
 ### Yêu cầu máy
 
@@ -79,17 +77,17 @@ rồi chạy lại script.
 ### Đổi cổng (mặc định 3000)
 
 ```bash
-PORT=1709 ./target/release/canh-doi-anh-viet       # Linux/macOS
+PORT=1709 ./target/release/reva-tool       # Linux/macOS
 ```
 
 ```powershell
-$env:PORT=1709; .\target\release\canh-doi-anh-viet.exe   # Windows PowerShell
+$env:PORT=1709; .\target\release\reva-tool.exe   # Windows PowerShell
 ```
 
 ### Dữ liệu nằm ở đâu?
 
-- Phiên làm việc lưu tại **thư mục `data/sessions/`** (mỗi phiên 1 file JSON).
-- Muốn đặt chỗ khác: đặt biến môi trường `CANH_DOI_DATA_DIR=/duong/dan`.
+- Phiên làm việc lưu tại **thư mục `data/sessions/`** (mỗi phiên 1 file JSON — phiên cũ của bản ≤2.4 vẫn mở được).
+- Muốn đặt chỗ khác: đặt biến môi trường `REVA_DATA_DIR=/duong/dan` (tên cũ `CANH_DOI_DATA_DIR` vẫn được chấp nhận).
 - Muốn xoá sạch: trong app bấm **Các phiên → Nhả tất cả**, hoặc xoá thư mục `data/`.
 
 ---
@@ -116,9 +114,9 @@ Binary nằm tại:
 
 | Hệ điều hành | Đường dẫn binary |
 |---|---|
-| Linux | `target/release/canh-doi-anh-viet` |
-| Windows | `target/release/canh-doi-anh-viet.exe` |
-| macOS | `target/release/canh-doi-anh-viet` |
+| Linux | `target/release/reva-tool` |
+| Windows | `target/release/reva-tool.exe` |
+| macOS | `target/release/reva-tool` |
 
 Copy duy nhất file binary đó sang máy khác là chạy được — **không kèm thư mục nào cả**
 (giao diện đã nhúng sẵn bên trong binary). Muốn có LaBSE trên máy đó thì cài Python
@@ -138,16 +136,33 @@ Copy duy nhất file binary đó sang máy khác là chạy được — **khôn
    - 🟢 **Tự khớp** — tin được.
    - 🟡 **Cần soát** — nên đọc lại, nhấn ✓ nếu đúng.
    - ⚪ **Không khớp** — một phía không có đối tác, khi xuất sẽ ghi chữ `none`.
-4. Sửa tay nếu cần: mỗi hàng có nút ✓ (xác nhận), ⚠ (cần soát), ✕ (bỏ ghép — tách thành 2 hàng `none`), ↺ (về tự động).
+4. Sửa tay nếu cần: mỗi hàng có nút ✓ (xác nhận), ⚠ (cần soát), ✕ (bỏ ghép — tách thành các hàng `none`).
 5. Chọn định dạng rồi bấm **⬇ Xuất file**.
+
+### KÉO–THẢ KHỐI (bản 2.5 — cách sửa nhanh cấu trúc)
+
+Sau khi ghép, **mỗi đoạn là một khối** (nhãn `EN·n` / `VI·n` = số đoạn gốc):
+
+- **Gộp nội dung**: kéo khối (vd `VI·16`, `VI·17`) thả vào ô VI của hàng khác (vd hàng có `C1`)
+  — thả giữa hai khối sẽ có **vạch chỉ vị trí**; thả vào ô `none` trống để ghép cặp mồ côi.
+  *Ví dụ:* EN có A B C, VI có A1 B1 C1 D1 E1 → kéo D1, E1 lên xếp sau C1 → hàng C thành `1 EN · 3 VI`.
+- **Đổi thứ tự**: kéo khối lên trước / sau khối khác trong cùng ô — thoải mái, xuất file theo đúng thứ tự khối.
+- **Tách riêng**: thả khối vào **thân hàng** khác (hiện nhãn “⇥ Thả đây để TÁCH”), bấm nút **⇥** trên khối,
+  hoặc (cảm ứng) bấm chọn khối rồi bấm thân hàng.
+- **Hoàn tác**: **Ctrl+Z** (làm lại: Ctrl+Shift+Z) hoặc nút **↩ Hoàn tác / ↪ Làm lại** trên thanh công cụ —
+  40 bước gần nhất, gồm cả kéo khối, tách, gộp, đánh dấu, rescan.
+- **Rescan**: bấm **↻ Rescan LaBSE** trên hàng vừa sắp xếp lại — công cụ nối các khối mỗi phía thành 1 văn bản,
+  chấm lại điểm khớp (LaBSE nếu dịch vụ chạy, luôn có sàn từ vựng) và cập nhật trạng thái theo ngưỡng.
+- Hàng mất khối cuối cùng **tự biến mất**; hàng vừa đổi nội dung về **Cần soát** (điểm cũ bị xoá) → biết chỗ cần rescan.
 
 ### LaBSE ảnh hưởng thế nào?
 
 - **Có LaBSE** (huy hiệu xanh “Từ vựng + LaBSE — chính xác cao”): cặp dịch đúng được
   nâng điểm rõ rệt → nhiều cặp 🟢 **Tự khớp** hơn và gán cặp đúng hơn với bài dịch thoáng.
-  Bấm vào huy hiệu để xem trạng thái chi tiết.
+  Nút **Rescan** lúc này chấm bằng cả LaBSE + từ vựng. Bấm vào huy hiệu để xem trạng thái chi tiết.
 - **Không LaBSE** (huy hiệu hổ phách “Chỉ từ vựng”): chất lượng như bản 2.1 — vẫn dùng
-  được bình thường. Bấm huy hiệu để xem cách bật.
+  được bình thường; **Rescan** vẫn chấm bằng bộ từ vựng (giao diện báo rõ “từ vựng”).
+  Bấm huy hiệu để xem cách bật.
 - Mỗi phiên ghi lại động cơ đã dùng (`lexical` / `lexical+labse`) — mở lại phiên cũ vẫn thấy đúng.
 
 ### PHIÊN MỚI / NHẢ PHIÊN (câu hỏi thường gặp)
@@ -157,14 +172,16 @@ Copy duy nhất file binary đó sang máy khác là chạy được — **khôn
 - **Nhả (xoá) phiên trước**: bấm **🗑 Nhả phiên này** ở thanh công cụ kết quả, hoặc mở
   **📂 Các phiên** → nút **🗑 Nhả** bên mỗi phiên. Có cả **Nhả tất cả phiên**.
 - Các phiên cũ nằm trong drawer **📂 Các phiên**, bấm **📂 Mở** để đưa trở lại màn hình
-  (kèm văn bản gốc để ghép lại).
+  (kèm văn bản gốc để ghép lại; lịch sử hoàn tác không lưu qua lần mở lại).
 
 ### Tự kiểm tra
 
-Nút **🧪 Tự kiểm tra** chạy 21 bài kiểm nội bộ (không cần mạng). Bốn bài `[REGRESSION]` chính là
-3 lỗi từng gặp ở các bản trước (panic `index 61`, “không ghép được bài thứ hai”, “tải 2 bài từ URL
-xong nút Ghép bị mờ”); bài `[TÍCH HỢP]` cuối kiểm toàn bộ đường ống LaBSE bằng dịch vụ nhúng
-giả lập (không cần tải model), bài 20 hồi quy "tải URL mất mục danh sách" và bài 21 xuất CSV/HTML/XLIFF. Nếu cả 21 bài xanh thì máy bạn đang chạy đúng bản đã sửa.
+Nút **🧪 Tự kiểm tra** chạy 30 bài kiểm nội bộ (không cần mạng). Bốn bài `[REGRESSION]` chính là
+4 lỗi từng gặp ở các bản trước (panic `index 61`, “không ghép được bài thứ hai”, “tải 2 bài từ URL
+xong nút Ghép bị mờ”, “tải URL mất mục danh sách”); bài `[TÍCH HỢP]` kiểm toàn bộ đường ống LaBSE bằng
+dịch vụ nhúng giả lập (không cần tải model); 4 bài gộp hàng (bản 2.4) và 5 bài mô hình khối (bản 2.5:
+kéo khối + hoàn tác/làm lại, tách khối, Rescan, xuất sau đổi thứ tự, đầu vào xấu). Nếu cả 30 bài xanh
+thì máy bạn đang chạy đúng bản đã sửa.
 
 ---
 
@@ -172,7 +189,7 @@ giả lập (không cần tải model), bài 20 hồi quy "tải URL mất mục
 
 | Triệu chứng | Nguyên nhân & cách xử lý |
 |---|---|
-| "KHÔNG mở được cổng 3000" | Cổng đang bận. Đổi cổng: `PORT=3001 ./target/release/canh-doi-anh-viet` |
+| "KHÔNG mở được cổng 3000" | Cổng đang bận. Đổi cổng: `PORT=3001 ./target/release/reva-tool` |
 | Script báo "Chưa có Rust" | Cài tại https://rustup.rs (Windows chạy `rustup-init.exe`, chọn 1) rồi **mở terminal MỚI** chạy lại script |
 | Script báo "Không tìm thấy Python 3" | Cài Python 3.9+ (Windows: tick **Add python.exe to PATH** lúc cài) rồi chạy lại script |
 | Tải model LaBSE lỗi | Kiểm tra mạng + ~2 GB đĩa trống; chạy lại script (model có cache, không phải tải lại từ đầu) |
@@ -181,6 +198,7 @@ giả lập (không cần tải model), bài 20 hồi quy "tải URL mất mục
 | "Không tải được trang" khi dùng ⬇ Tải | Trang đó chặn robot hoặc cần JavaScript — copy văn bản thủ công vào ô |
 | Ghép ra toàn "Cần soát" | Bài ít số/tên riêng → mở **⚙ Nâng cao**, hạ **Ngưỡng tự khớp** xuống ~0.2 rồi ghép lại; hoặc bật LaBSE để nâng chất lượng |
 | Quá nhiều đoạn | Tối đa 2000 đoạn mỗi bên; bài dài thì tách làm 2 lần ghép |
+| Kéo thả không chạy trên điện thoại | HTML5 drag chỉ có trên desktop — dùng **bấm chọn khối → bấm ô đích** (hoặc nút ⇥ để tách) như mô tả mục C |
 | Muốn xoá mọi dữ liệu | **📂 Các phiên → 🗑 Nhả tất cả phiên**, hoặc xoá thư mục `data/` |
 
 ---
@@ -191,5 +209,5 @@ Gói nguồn kèm `SHA256SUMS.txt`. Kiểm tra:
 
 ```bash
 sha256sum -c SHA256SUMS.txt        # Linux/macOS
-certutil -hashfile en-vi-align-rust-source-v2.3.zip SHA256   # Windows
+certutil -hashfile en-vi-align-rust-source-v2.5.zip SHA256   # Windows
 ```

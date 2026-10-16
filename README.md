@@ -1,17 +1,21 @@
-# Cánh đôi Anh–Việt (`canh-doi-anh-viet`) v2.4
+# REVA tool (`reva-tool`) v2.5
 
-Công cụ **ghép đoạn văn bản Anh–Việt** (chỉ ghép, không dịch) đóng gói thành **một chương trình Rust duy nhất**:
+> Tiền thân: **Cánh đôi Anh–Việt** (`canh-doi-anh-viet`) — cùng công cụ, đổi tên từ bản 2.5.
+
+Công cụ **ghép & sắp đoạn văn bản Anh–Việt** (chỉ ghép, không dịch) đóng gói thành **một chương trình Rust duy nhất**:
 giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **100% cục bộ** trên máy bạn — không gửi dữ liệu đi đâu.
 
-**Bản 2.4 thêm kéo–thả gộp hàng**: báo Anh viết liền 1 đoạn nhưng bản dịch tách thành danh sách nhiều dòng? Kéo ô ⠿ của các hàng dưới thả vào hàng trên để gộp chung một ô (1 EN ↔ nhiều VI, hỗ trợ chọn vùng nhiều hàng liền kề) rồi đánh dấu Khớp / Cần soát.
+**Bản 2.5 — MÔ HÌNH KHỐI kéo–thả tự do + hoàn tác**: sau khi ghép, **mỗi đoạn văn là một khối** co giãn theo độ lớn chữ.
+Kéo khối vào ô cùng ngôn ngữ của HÀNG BẤT KỲ (ví dụ EN có A B C, VI có A1 B1 C1 D1 E1 → kéo D1, E1 lên chung sau C1),
+**đổi thứ tự tuỳ ý**, thả vào thân hàng (hoặc bấm `⇥`) để **tách thành hàng riêng**. Kéo nhầm? **Ctrl+Z hoàn tác ngay**
+(40 bước gần nhất). Mỗi hàng có nút **`↻ Rescan LaBSE`** chấm lại độ khớp sau khi sắp xếp lại.
 
-**Bản 2.3 sửa lỗi lớn khi tải URL: mục danh sách (gạch đầu dòng `<li>`) giờ được lấy đủ**, kèm tô màu 3 mức và 3 nút đánh dấu, xuất thêm CSV/HTML/XLIFF.
-
-**Bản 2.2 thêm LaBSE (tuỳ chọn nhưng rất nên có)**: mấu chốt cho độ chính xác ghép cặp. Xem mục [LaBSE](#labse-mấu-chốt-để-ghép-chính-xác) bên dưới.
+**Bản 2.4 thêm gộp hàng liền kề** (API `/merge` vẫn giữ), **bản 2.3** sửa trích `<li>` khi tải URL + tô màu 3 mức +
+3 nút đánh dấu + xuất CSV/HTML/XLIFF, **bản 2.2** thêm LaBSE (tuỳ chọn nhưng rất nên có — xem [LaBSE](#labse-mấu-chốt-để-ghép-chính-xác)).
 
 ```
-[canh-doi-anh-viet] chạy tại http://localhost:3000 (giao diện + API, tất cả cục bộ)
-[canh-doi-anh-viet] LaBSE (tuỳ chọn): http://127.0.0.1:3031 — chạy labse/labse_service.py để bật chế độ chính xác cao
+[reva-tool] chạy tại http://localhost:3000 (giao diện + API, tất cả cục bộ)
+[reva-tool] LaBSE (tuỳ chọn): http://127.0.0.1:3031 — chạy labse/labse_service.py để bật chế độ chính xác cao
 ```
 
 ## Tính năng
@@ -23,27 +27,37 @@ giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **10
   (công khai, chỉ nâng không hạ — xem bên dưới) → ghép đúng hơn hẳn với bài dịch thoáng/lược bớt.
 - **4 trạng thái chuẩn** (giữ nguyên quy ước bản gốc): `auto_matched` (Tự khớp) · `needs_review` (Cần soát) ·
   `unmatched` (Không khớp) · `human_confirmed` (Đã xác nhận).
+- **Mô hình khối kéo–thả tự do (bản 2.5)**: sau khi ghép, mỗi đoạn là **một khối 🧩** (co giãn theo độ lớn văn bản):
+  * **Kéo sang ô cùng ngôn ngữ của hàng bất kỳ** — thả giữa hai khối có vạch chỉ vị trí; thả vào ô `none` trống để ghép cặp mồ côi;
+  * **Đổi thứ tự tuỳ ý** trong cùng ô (kéo lên trước / sau) và giữa các hàng — thứ tự xuất file theo đúng thứ tự khối trên màn hình;
+  * **Tách riêng**: thả khối vào thân hàng khác, bấm nút `⇥` trên khối, hoặc bấm chọn khối rồi bấm thân hàng (đường cảm ứng);
+  * **Hoàn tác / làm lại**: `Ctrl+Z` / `Ctrl+Shift+Z` (hoặc nút `↩`/`↪` trên thanh công cụ) — 40 bước gần nhất,
+    bao gồm mọi thao tác: kéo khối, tách, gộp, đánh dấu, rescan;
+  * Hàng mất khối cuối cùng **tự biến mất**; hàng vừa đổi nội dung về `Cần soát` + xoá điểm cũ → luôn biết chỗ cần soát lại.
+- **Rescan LaBSE từng hàng (bản 2.5)**: nút `↻ Rescan LaBSE` trên mỗi hàng chấm lại điểm khớp sau khi kéo–thả —
+  ghép các khối mỗi phía thành 1 văn bản, chấm bằng bộ từ vựng (giữ idf toàn phiên) + hoà trộn cosine LaBSE nếu dịch vụ chạy,
+  cập nhật điểm + trạng thái theo ngưỡng. Không có LaBSE thì vẫn chấm được bằng từ vựng (giao diện báo rõ).
 - **Phiên làm việc**: mỗi lần ghép tạo **một phiên mới độc lập** — ghép bao nhiêu bài liên tiếp cũng không
-  bị "bẩn" dữ liệu nhau. Phiên được lưu tự động vào `data/sessions/*.json`.
+  bị "bẩn" dữ liệu nhau. Phiên được lưu tự động vào `data/sessions/*.json` (phiên cũ của bản ≤2.4 vẫn mở được).
 - **Nhả phiên / phiên mới**: nút "Phiên mới" để bắt đầu sạch; drawer "Các phiên" để mở lại hoặc nhả (xoá) phiên cũ;
   có "Nhả tất cả".
-- **Sửa tay từng cặp**: xác nhận, đánh dấu cần soát, **bỏ ghép (tách cặp thành 2 hàng `none`)**, trở về tự động.
-- **Kéo–thả gộp hàng (bản 2.4)**: bên báo Anh viết liền 1 đoạn, bên dịch tách thành danh sách? Kéo ô `⠿`
-  của các hàng dưới thả vào hàng trên để **gộp chung một ô** (1 EN ↔ nhiều VI, hoặc nhiều ↔ nhiều) — hỗ trợ
-  bấm chọn / **Shift+bấm chọn vùng nhiều hàng liền kề** rồi kéo một lần; nút `⇡ Gộp` bên trái mỗi hàng là
-  phím tắt cảm ứng. Hàng gộp hiển thị từng đoạn kèm nhãn đoạn gốc (`EN · 1 + 2`, chip `🔗 n EN · m VI`);
-  bấm `✕ Không khớp` sẽ tách trả về đúng từng đoạn gốc. Gộp chỉ cho phép hàng liền kề nên tính đơn điệu luôn giữ.
+- **Sửa tay từng cặp**: xác nhận, đánh dấu cần soát, **bỏ ghép (tách cặp thành các hàng `none`)**, trở về tự động.
+- **Kéo–thả gộp hàng liền kề (bản 2.4, API `/merge`)**: gộp hàng kế tiếp vào hàng này — vẫn dùng được qua API;
+  trên giao diện bản 2.5 dùng thao tác kéo khối thay thế (linh hoạt hơn và hoàn tác được).
 - **Xuất file 6 định dạng**: TSV (tab), Moses (`văn bản ||| văn bản`), JSON, **CSV (mở được bằng Excel, kèm BOM UTF-8)**, **HTML (bảng đối chiếu tô màu theo trạng thái)**, **XLIFF 1.2 (cho công cụ dịch/CAT)**. Đoạn thiếu một phía ghi đúng
-  chữ `none` — đúng quy ước bản gốc. **Hàng gộp (bản 2.4)**: TSV/Moses/XLIFF nối đoạn bằng dấu cách; **CSV giữ
+  chữ `none` — đúng quy ước bản gốc. **Hàng nhiều khối**: TSV/Moses/XLIFF nối đoạn bằng dấu cách; **CSV giữ
   từng đoạn một dòng trong cùng một ô** (Excel mở vẫn đúng); JSON kèm `enParts`/`viParts`; HTML ghi rõ từng đoạn gốc.
-- **Tải bài từ URL** (p + mục danh sách `<li>` theo thứ tự tài liệu, đã lọc chrom trang): dán link bài tiếng Anh/tiếng Việt, công cụ tải và trích các đoạn `<p>`;
-  tự **lược bỏ chrom giao diện trang** (dòng “Published…”, “Share this with…”, lời mời đăng ký bản tin,
-  địa chỉ bưu điện…) — chỉ giữ nội dung thật của bài.
+  Xuất theo đúng **thứ tự khối đã sắp** (đổi thứ tự tuỳ ý — duy trì bất biến "mỗi đoạn đúng 1 lần").
+- **Tải bài từ URL** (`<p>` + mục danh sách `<li>` theo thứ tự tài liệu, đã lọc chrom trang): dán link bài tiếng Anh/tiếng Việt,
+  công cụ tải và trích đoạn; tự **lược bỏ chrom giao diện trang** (dòng "Published…", "Share this with…", lời mời đăng ký
+  bản tin, địa chỉ bưu điện…) — chỉ giữ nội dung thật của bài.
 - **Tô màu 3 mức theo trạng thái** (bản 2.3): hàng **xanh** = khớp/khớp phần lớn (tự khớp + đã xác nhận), hàng **vàng** = cần soát/khớp một phần, hàng **đỏ** = không khớp hoàn toàn — áp cả trong giao diện lẫn file HTML xuất ra.
-- **Đúng 3 nút đánh dấu trên mỗi hàng** (bản 2.3): `✓ Khớp` (xanh) · `⚠ Soát` (vàng) · `✕ Không khớp` (đỏ, tách cặp thành 2 hàng `none`) — bấm xong xuất file là xong.
-- **Tự kiểm tra (selftest)**: 25 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
-  (panic `index 61`, "không ghép được bài thứ hai", "nút Ghép bị mờ sau khi tải URL") , 1 bài **tích hợp LaBSE**
-  và 4 bài **gộp hàng kéo–thả** (gộp + xuất 6 định dạng, kịch bản 1 EN ↔ nhiều VI, gộp–rồi–tách, gộp cùng phía).
+- **Đúng 3 nút đánh dấu trên mỗi hàng** (bản 2.3): `✓ Khớp` (xanh) · `⚠ Soát` (vàng) · `✕ Không khớp` (đỏ, tách cặp thành các hàng `none`) — bấm xong xuất file là xong.
+- **Tự kiểm tra (selftest)**: 30 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
+  (panic `index 61`, "không ghép được bài thứ hai", "nút Ghép bị mờ sau khi tải URL", "tải URL mất mục `<li>`"),
+  1 bài **tích hợp LaBSE**, 4 bài **gộp hàng** (bản 2.4) và **5 bài mô hình khối** (bản 2.5):
+  kéo khối + hoàn tác/làm lại nguyên xi, tách khối + prune hàng rỗng, Rescan (công thức + ngưỡng + từ chối một phía),
+  xuất sau khi tráo chéo khối (tha thứ đơn điệu, "mỗi đoạn 1 lần" vẫn gắt), đầu vào xấu của `move_block`.
 
 ## Chạy nhanh — 1 lệnh cho mỗi hệ điều hành
 
@@ -71,10 +85,11 @@ Bộ từ vựng giỏi bài báo giàu số/tên riêng; LaBSE giỏi **mọi v
   Nguyên tắc **"chỉ nâng, không hạ"**: điểm từ vựng là sàn — bài dịch lược bớt vẫn ghép được như thường,
   còn cặp dịch đúng được nâng lên "Tự khớp" và DP gán đúng cặp nhờ khoảng cách cosine rõ rệt.
 - **Khi không có LaBSE** (không cài Python, không mạng…): app tự fallback về thuần từ vựng —
-  huy hiệu trên đầu báo "Chỉ từ vựng — chưa bật LaBSE" (chấm hổ phách). Ghép vẫn chạy 100%.
+  huy hiệu trên đầu báo "Chỉ từ vựng — chưa bật LaBSE" (chấm hổ phách). Ghép vẫn chạy 100%;
+  nút **Rescan** cũng vẫn chấm được bằng từ vựng (giao diện báo rõ "từ vựng").
 - Giao thức: `labse/labse_service.py` lắng nghe tại `127.0.0.1:3031`;
   `GET /health`, `POST /embed {"texts":[…]}` → `{"embeddings":[[…],…]}` (đã chuẩn hoá L2).
-  Đổi địa chỉ bằng biến môi trường `CANH_DOI_LABSE_URL`.
+  Đổi địa chỉ bằng biến môi trường `REVA_LABSE_URL` (tên cũ `CANH_DOI_LABSE_URL` vẫn được chấp nhận).
 - Mỗi phiên lưu kèm `engine` (`lexical` / `lexical+labse`) — mở lại phiên cũ vẫn thấy đúng động cơ đã dùng.
 
 **Lưu ý Linux không có card NVIDIA**: `pip install sentence-transformers` kéo bản PyTorch kèm CUDA (~2.5 GB).
@@ -97,8 +112,11 @@ PORT=1709 cargo run --release        # Linux/macOS
 set PORT=1709 && cargo run --release # Windows (cmd)
 ```
 
-Binary sau khi build nằm ở `target/release/canh-doi-anh-viet` (Linux/macOS)
-hoặc `target/release/canh-doi-anh-viet.exe` (Windows) — copy đi đâu cũng chạy được, không kèm gì thêm.
+Thư mục dữ liệu (session) mặc định nằm cạnh binary (`data/`); ghi đè bằng biến môi trường
+`REVA_DATA_DIR` (tên cũ `CANH_DOI_DATA_DIR` vẫn được chấp nhận).
+
+Binary sau khi build nằm ở `target/release/reva-tool` (Linux/macOS)
+hoặc `target/release/reva-tool.exe` (Windows) — copy đi đâu cũng chạy được, không kèm gì thêm.
 Muốn thêm LaBSE thì chạy riêng dịch vụ:
 
 ```bash
@@ -113,7 +131,7 @@ en-vi-align-rust/
 ├── build-and-run-windows.bat  # file lệnh build+chạy cho Windows
 ├── build-and-run-macos.sh     # file lệnh build+chạy cho macOS
 ├── build-and-run-linux.sh     # file lệnh build+chạy cho Linux
-├── Cargo.toml                 # khai báo package + dependencies (axum, tokio, serde, ureq…)
+├── Cargo.toml                 # khai báo package + dependencies (axum, tokio, serde, ureq…) — binary reva-tool
 ├── static/index.html          # giao diện tiếng Việt (nhúng sẵn vào binary khi build)
 ├── labse/                     # dịch vụ nhúng LaBSE (Python, tuỳ chọn)
 │   ├── labse_service.py       #   lắng nghe 127.0.0.1:3031 — /health, /embed
@@ -122,12 +140,12 @@ en-vi-align-rust/
 │   └── start-labse-windows.bat#   khởi động service kèm log (script Windows)
 ├── src/
 │   ├── main.rs                # server axum + toàn bộ API + banner
-│   ├── aligner.rs             # bộ ghép: chấm điểm + DP đơn điệu + hoà trộn LaBSE (an toàn index tuyệt đối)
-│   ├── embedder.rs            # LaBSE: HTTP client + cosine + pipeline dùng chung /api/align & selftest
-│   ├── session.rs             # phiên: tạo / mở / cập nhật / GỘP HÀNG / tách / NHẢ PHIÊN / lưu JSON (kèm engine)
-│   ├── exporter.rs            # xuất TSV / Moses / JSON / CSV / HTML / XLIFF với chữ `none` nguyên văn (hỗ trợ hàng gộp)
+│   ├── aligner.rs             # bộ ghép: chấm điểm + DP đơn điệu + hoà trộn LaBSE + rescore_pair (bản 2.5)
+│   ├── embedder.rs            # LaBSE: HTTP client + cosine + pipeline /api/align & selftest + pair_cosine (rescan)
+│   ├── session.rs             # phiên: tạo / mở / cập nhật / GỘP HÀNG / TÁCH / move_block / UNDO-REDO / rescan_row / NHẢ PHIÊN
+│   ├── exporter.rs            # xuất TSV / Moses / JSON / CSV / HTML / XLIFF với chữ `none` nguyên văn (hỗ trợ nhiều khối/hàng)
 │   ├── fetcher.rs             # tải URL + trích HTML
-│   ├── selftest.rs            # 25 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng)
+│   ├── selftest.rs            # 30 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối)
 │   ├── lexicon.rs             # từ điển Anh→Việt + danh sách từ phổ biến
 │   └── fold.rs                # bỏ dấu tiếng Việt ("Hà Nội" → "ha noi"), chuẩn hoá số
 └── data/sessions/             # (tạo lúc chạy) nơi lưu các phiên
@@ -139,27 +157,34 @@ en-vi-align-rust/
 |---|---|---|
 | POST | `/api/align` | Ghép 2 văn bản → tạo PHIÊN MỚI (tự dùng LaBSE nếu đang chạy) |
 | GET | `/api/sessions` | Danh sách phiên |
-| GET | `/api/sessions/{id}` | Chi tiết 1 phiên |
+| GET | `/api/sessions/{id}` | Chi tiết 1 phiên (kèm `canUndo` / `canRedo`) |
 | DELETE | `/api/sessions/{id}` | **Nhả phiên** |
 | DELETE | `/api/sessions` | Nhả tất cả |
 | PATCH | `/api/sessions/{id}/rows/{index}` | Đổi trạng thái 1 hàng (bỏ ghép sẽ tách cặp) |
-| POST | `/api/sessions/{id}/rows/{index}/merge` | **Gộp hàng kế tiếp vào hàng này** (body tuỳ chọn `{"status":"needs_review"}`) — bản 2.4 |
+| POST | `/api/sessions/{id}/rows/{index}/merge` | Gộp hàng kế tiếp vào hàng này (API bản 2.4, vẫn giữ) |
+| POST | `/api/sessions/{id}/rows/{index}/rescan` | **Rescan — chấm lại điểm hàng** (LaBSE nếu chạy + sàn từ vựng) · bản 2.5 |
+| POST | `/api/sessions/{id}/blocks/move` | **Di chuyển khối** `{side, fromRow, fromPos, toRow, toPos, afterRow}` — `toRow: null` = tách thành hàng riêng · bản 2.5 |
+| POST | `/api/sessions/{id}/undo` | **Hoàn tác** bước gần nhất (40 bước) · bản 2.5 |
+| POST | `/api/sessions/{id}/redo` | **Làm lại** bước vừa hoàn tác · bản 2.5 |
 | POST | `/api/export` | Xuất file (`tsv` / `moses` / `json` / `csv` / `html` / `xliff`) |
 | POST | `/api/fetch-url` | Tải bài từ URL |
-| GET | `/api/selftest` | Chạy 25 bài tự kiểm |
+| GET | `/api/selftest` | Chạy 30 bài tự kiểm |
 | GET | `/api/model-status` | Trạng thái động cơ + LaBSE (`labse.ready`, `labse.url`) |
 | GET | `/api/health` | Kiểm tra sống |
 
 ## 5 bất biến (được kiểm tra tự động)
 
-1. Mỗi đoạn tiếng Anh được dùng **đúng 1 lần** trong kết quả (kể cả sau gộp / tách).
+1. Mỗi đoạn tiếng Anh được dùng **đúng 1 lần** trong kết quả (kể cả sau kéo–thả / gộp / tách).
 2. Mỗi đoạn tiếng Việt được dùng **đúng 1 lần**.
-3. Ghép **đơn điệu** — không giao nhau, giữ thứ tự bài gốc (gộp chỉ cho phép hàng liền kề nên không bao giờ tạo giao chéo).
+3. Ghép **đơn điệu** — không giao nhau, giữ thứ tự bài gốc. *(Bản 2.5: khi người dùng CÓ CHỦ ĐÍCH kéo–thả đổi thứ tự
+   khối giữa các hàng, phiên được đánh dấu `reordered` và duy nhất bất biến này được tha thứ lúc xuất — mọi bất biến
+   khác vẫn kiểm gắt.)*
 4. Trạng thái chỉ thuộc 4 giá trị chuẩn; `unmatched` ⟺ hàng thiếu đúng một phía
    (`human_confirmed` một phía = người dùng xác nhận "không có bản dịch").
 5. Khi xuất, phía thiếu ghi đúng chữ **`none`** (nguyên văn) và **không bỏ sót đoạn nào**.
 
-(LaBSE chỉ đổi **điểm gốc** trước khi vào DP — 5 bất biến và toàn bộ quy ước trạng thái giữ nguyên, được kiểm lại trong selftest 25 bài kể cả khi có LaBSE.)
+(LaBSE chỉ đổi **điểm gốc** trước khi vào DP — 5 bất biến và toàn bộ quy ước trạng thái giữ nguyên, được kiểm lại
+trong selftest 30 bài kể cả khi có LaBSE. Rescan bản 2.5 dùng lại đúng lõi chấm điểm của bộ ghép — không thêm thuật toán mới.)
 
 ## Sửa lỗi so với các bản trước
 
@@ -167,8 +192,9 @@ en-vi-align-rust/
 |---|---|---|
 | `panic: index out of bounds: the len is 61 but the index is 18446744073709551615` (bản 1.x) | Sentinel `-1` cast sang `usize` rồi dùng làm chỉ số mảng | Toàn bộ aligner viết lại với `Option<usize>`, ma trận phẳng, backtrack có nhánh riêng cho biên — **không còn phép trừ chỉ số nào có thể tràn**; kèm bài hồi quy `07. [REGRESSION] panic index 61` |
 | Ghép bài 1 xuất tốt, bài 2 "Không ghép được." (bản 1.x) | Trạng thái rò rỉ giữa các lần ghép (panic trên worker thread làm chết request) | Mỗi lần ghép là **phiên mới độc lập**, bộ ghép **vô trạng thái**, panic được `catch_unwind` bắt lại trả lỗi JSON — server không bao giờ chết; kèm bài hồi quy `08. [REGRESSION]` |
-| **Tải 2 bài từ URL xong, nút “⚡ Ghép đoạn" bị mờ, không bấm được** (bản 2.0) | Trong `fetchUrl()`, hàm đếm đoạn chạy lúc trạng thái "đang bận" vẫn bật → nút bị khoá; sau đó không còn đường dẫn nào mở khoá lại | Tách hàm `syncAlignBtn()` làm **một nguồn sự thật duy nhất** cho trạng thái nút; mọi vòng "bận" (tải URL, ghép…) kết thúc đều tự đồng bộ lại; kèm bài hồi quy `18. [REGRESSION]` và lọc chrom giao diện khi tải URL |
+| **Tải 2 bài từ URL xong, nút "⚡ Ghép đoạn" bị mờ, không bấm được** (bản 2.0) | Trong `fetchUrl()`, hàm đếm đoạn chạy lúc trạng thái "đang bận" vẫn bật → nút bị khoá; sau đó không còn đường dẫn nào mở khoá lại | Tách hàm `syncAlignBtn()` làm **một nguồn sự thật duy nhất** cho trạng thái nút; mọi vòng "bận" (tải URL, ghép…) kết thúc đều tự đồng bộ lại; kèm bài hồi quy `18. [REGRESSION]` và lọc chrom giao diện khi tải URL |
 | **Bảng kết quả nhiều hàng → mỗi hàng bị nén cực hẹp (~12–16px), chữ bị cắt mất** (bản 2.1) | Khung `.rows` là flex-cột có `max-height` — các hàng mặc định `flex-shrink:1` nên bị **nén lại** cho vừa khung thay vì để khung cuộn | `.rows > *{flex:none}` — hàng giữ chiều cao tự nhiên, khung cuộn dọc như dự kiến; kèm chỉnh bố cục mobile (thanh giữa trải nguyên hàng, không còn rơi vào cột 28px) |
+| **Kéo nhầm hàng không hoàn tác được** (bản 2.4 — thao tác gộp hàng là một chiều) | Gộp hàng cắt xé cấu trúc, không có ngăn xếp lịch sử | **Bản 2.5**: mô hình khối (mỗi đoạn = 1 khối kéo tự do) + **ngăn xếp hoàn tác 40 bước** (Ctrl+Z) bao trùm mọi thao tác; kéo nhầm chỉ là kéo lại — hoặc 1 phím Ctrl+Z |
 
 ## Giấy phép
 
