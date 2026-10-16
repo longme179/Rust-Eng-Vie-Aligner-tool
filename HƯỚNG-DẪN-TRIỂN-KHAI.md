@@ -1,10 +1,14 @@
-# HƯỚNG DẪN TRIỂN KHAI — Cánh đôi Anh–Việt v2.3
+# HƯỚNG DẪN TRIỂN KHAI — Cánh đôi Anh–Việt v2.4
 
 > Công cụ ghép đoạn văn bản Anh–Việt, 1 chương trình duy nhất, chạy cục bộ 100%.
 > **Từ v2.2 không còn binary dựng sẵn** — mỗi hệ điều hành có **một file lệnh duy nhất**
 > đem vào terminal là tự build + tự chạy (người dùng tự compile từ mã nguồn, nhờ đó
 > **LaBSE — mấu chốt để ghép chính xác — luôn đầy đủ**).
 >
+> **v2.4 thêm kéo–thả gộp hàng**: báo Anh viết liền 1 đoạn nhưng bản dịch tách thành
+> danh sách? Kéo ô `⠿` của các hàng dưới thả vào hàng trên để gộp chung (được cả chọn
+> vùng nhiều hàng liền kề bằng Shift) rồi đánh dấu Khớp / Cần soát. Nút `⇡ Gộp` bên trái
+> mỗi hàng là phím tắt cảm ứng. Xuất file giữ đúng hàng gộp (CSV: nhiều dòng trong một ô).
 > **v2.3 sửa**: tải URL giờ lấy đủ mục danh sách (gạch đầu dòng) — trước đây chỉ lấy
 > được câu dẫn (vd bài SBS chỉ còn "bao gồm:" mà mất 3 gạch đầu dòng). **v2.3 thêm**:
 > tô màu hàng 3 mức (xanh/vàng/đỏ), đúng 3 nút đánh dấu, xuất CSV/HTML/XLIFF.

@@ -152,15 +152,28 @@
      nên khi nhiều hàng, mỗi hàng bị nén còn ~12–16px, chữ bị cắt hết (hàng “bí ngô” mỏng).
      flex:none cho mọi con → hàng giữ chiều cao tự nhiên, khung cuộn dọc như dự kiến. */
   .rows > *{flex:none}
+  /* BẢN 2.4 — trạng thái kéo–thả gộp hàng */
+  body.dragging{cursor:grabbing}
+  body.dragging .rows{user-select:none}
   .rows::-webkit-scrollbar{width:11px}
   .rows::-webkit-scrollbar-thumb{background:var(--border2); border-radius:8px; border:3px solid var(--surface)}
   .rows::-webkit-scrollbar-thumb:hover{background:var(--faint)}
 
   .row{
-    display:grid; grid-template-columns:34px 1fr 196px 1fr; gap:0; border:1px solid var(--border);
+    display:grid; grid-template-columns:46px 1fr 196px 1fr; gap:0; border:1px solid var(--border);
     border-radius:12px; background:var(--surface); overflow:hidden; transition:border-color .15s;
   }
   .row:hover{border-color:var(--border2)}
+  /* BẢN 2.4 — chọn hàng / đích thả / hiệu ứng gộp xong */
+  .row.selected{outline:2px dashed var(--teal); outline-offset:-2px}
+  .row.droptarget{outline:3px solid var(--green); outline-offset:-3px; background:#f0fdf4; position:relative; z-index:2}
+  .row.droptarget::before{
+    content:"⇩ Thả để gộp vào hàng này"; position:absolute; top:-12px; left:50%; transform:translateX(-50%);
+    background:var(--green); color:#fff; font-size:11px; font-weight:800; padding:2px 11px; border-radius:99px; z-index:6; white-space:nowrap;
+    box-shadow:0 4px 14px -4px rgba(4,120,87,.55);
+  }
+  .row.justmerged{animation:justflash 1.6s ease}
+  @keyframes justflash{0%{box-shadow:0 0 0 5px rgba(4,120,87,.5)}100%{box-shadow:0 0 0 0 rgba(4,120,87,0)}}
   /* BẢN 2.3 — tô màu CẢ HÀNG (kéo nền qua 2 ô văn bản) theo quy ước 3 màu:
      xanh = khớp/khớp phần lớn (auto_matched + human_confirmed)
      vàng = cần soát/khớp một phần (needs_review)
@@ -169,7 +182,25 @@
   .row.st-human{border-left:3px solid var(--green); background:linear-gradient(90deg,var(--green-bg) 0%,#ffffff 62%)}
   .row.st-review{border-left:3px solid #d97706; background:linear-gradient(90deg,var(--amber-bg) 0%,#ffffff 62%)}
   .row.st-unmatch{border-left:3px solid var(--rose); background:linear-gradient(90deg,var(--rose-bg) 0%,#ffffff 62%)}
-  .rownum{display:grid; place-items:center; font-family:var(--mono); font-size:12px; color:var(--faint); background:var(--surface2); border-right:1px solid var(--border)}
+  .rownum{display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:4px; padding:7px 2px; font-family:var(--mono); font-size:12px; color:var(--faint); background:var(--surface2); border-right:1px solid var(--border)}
+  /* BẢN 2.4 — ô cầm kéo (grip) + nút Gộp dự phòng cho cảm ứng */
+  .grip{
+    width:38px; height:26px; display:grid; place-items:center; border-radius:7px; color:var(--faint);
+    cursor:grab; user-select:none; font-size:15px; line-height:1; transition:all .12s; touch-action:none;
+  }
+  .grip:hover{color:var(--teal-d); background:var(--teal-bg)}
+  .grip:focus-visible{outline:2px solid var(--teal); outline-offset:1px}
+  .grip:active{cursor:grabbing}
+  .row.selected .grip{color:var(--teal-d); background:var(--teal-l)}
+  .rownum .num{font-size:11.5px; color:var(--muted)}
+  .railbtn{
+    display:inline-flex; align-items:center; justify-content:center; gap:2px;
+    border:1px dashed var(--border2); background:var(--surface); color:var(--muted);
+    font-size:10px; font-weight:800; padding:4px 4px; border-radius:7px; transition:all .12s; white-space:nowrap;
+  }
+  .railbtn:hover:not([disabled]){border-color:var(--teal); color:var(--teal-d); background:var(--teal-bg)}
+  .railbtn:focus-visible{outline:2px solid var(--teal); outline-offset:1px}
+  .railbtn[disabled]{opacity:.3; pointer-events:none}
   .cell{padding:11px 13px; min-width:0}
   .cell .tag{
     display:inline-block; font-size:10px; font-weight:800; letter-spacing:.8px; color:var(--faint);
@@ -179,12 +210,17 @@
   .cell.missing{background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 8px,#f4f8f6 8px,#f4f8f6 16px)}
   .cell.missing .text{color:var(--faint); font-style:italic}
   .cell.missing .text b{font-family:var(--mono); font-style:normal; color:var(--muted); background:var(--slate-l); border-radius:5px; padding:1px 7px; font-size:12px}
+  /* BẢN 2.4 — các đoạn gộp hiển thị riêng trong ô, kèm nhãn đoạn gốc */
+  .seg-extra{margin-top:8px; padding:7px 10px; border-left:3px solid var(--border2); background:var(--surface2); border-radius:0 9px 9px 0}
+  .seg-extra .mtag{display:inline-block; font-family:var(--mono); font-size:9.5px; font-weight:800; color:var(--muted); background:var(--slate-l); padding:1px 6px; border-radius:5px; margin-bottom:4px}
+  .seg-extra .text{font-size:13px}
   .mid{padding:10px 12px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; border-left:1px dashed var(--border); border-right:1px dashed var(--border); background:rgba(255,255,255,.5)}
   .badge{font-size:11.5px; font-weight:700; padding:3px 11px; border-radius:99px; white-space:nowrap}
   .badge.b-auto{background:var(--green-l); color:var(--green)}
   .badge.b-review{background:var(--amber-l); color:var(--amber)}
   .badge.b-unmatch{background:var(--rose-l); color:var(--rose)}
   .badge.b-human{background:var(--green-l); color:var(--green)}
+  .mergechip{display:inline-flex; gap:5px; align-items:center; font-size:10.5px; font-weight:800; color:#7c2d12; background:#ffedd5; border:1px solid #fed7aa; padding:2px 9px; border-radius:99px; white-space:nowrap}
   .meter{width:100%; height:5px; border-radius:4px; background:var(--slate-l); overflow:hidden}
   .meter i{display:block; height:100%; border-radius:4px; background:linear-gradient(90deg,#14b8a6,#0d9488)}
   .score{font-family:var(--mono); font-size:11px; color:var(--muted)}
@@ -210,13 +246,15 @@
   @media(max-width:760px){
     /* Sửa bố cục mobile (bản 2.1 để .mid rơi vào cột 28px gây cắt nội dung):
        [số thứ tự | đoạn EN] / [thanh giữa trải nguyên hàng] / [— | đoạn VI] */
-    .row{grid-template-columns:34px minmax(0,1fr)}
+    .row{grid-template-columns:46px minmax(0,1fr)}
     .cell.en{grid-column:2; border-bottom:1px dashed var(--border)}
     .mid{grid-column:1 / -1; border-left:none; border-right:none; border-bottom:1px dashed var(--border); flex-direction:row; flex-wrap:wrap; justify-content:space-between; align-items:center}
     .cell.vi{grid-column:2}
     .meter{flex:1; min-width:50px}
     .acts{flex-direction:row; width:auto}
     .mk{width:auto; padding:6px 10px}
+    .railbtn span{display:none}
+    .grip{width:36px; font-size:13px}
   }
 
   /* ---- mobile: header gọn, không tràn ngang ---- */
@@ -347,7 +385,7 @@
   </div>
   <div class="top-actions">
     <button class="engine-badge" id="engineBadge" type="button" title="Động cơ ghép — nhấn để xem cách bật LaBSE (chế độ chính xác cao)"><span class="dot" aria-hidden="true"></span><span id="engineText" class="etext">đang kiểm tra…</span></button>
-    <button class="btn" id="btnSelftest" title="Chạy 21 bài tự kiểm nội bộ">🧪 Tự kiểm tra</button>
+    <button class="btn" id="btnSelftest" title="Chạy 25 bài tự kiểm nội bộ">🧪 Tự kiểm tra</button>
     <button class="btn" id="btnDrawer" title="Danh sách các phiên đã lưu">📂 Các phiên <span class="n" id="drawerCount" style="font-family:var(--mono)"></span></button>
   </div>
 </header>
@@ -415,7 +453,7 @@
         <h2>🔎 Kết quả ghép</h2>
         <span class="session-chip" id="sessionChip" style="display:none"></span>
         <span style="flex:1"></span>
-        <span style="font-size:12px;color:var(--muted)">Đánh dấu từng cặp bằng 3 nút màu trên mỗi hàng, rồi xuất file</span>
+        <span style="font-size:12px;color:var(--muted)">Kéo ô <b style="font-family:var(--mono)">⠿</b> để gộp hàng liền kề · 3 nút màu để đánh dấu</span>
       </div>
       <div class="legend" aria-label="Chú giải màu">
         <span class="lg lg-green">Khớp / khớp phần lớn</span>
@@ -452,6 +490,7 @@
       <ol>
         <li>Dán văn bản vào hai ô phía trên — hoặc nhấn <b>Bài mẫu</b> để thử ngay.</li>
         <li>Nhấn <b>⚡ Ghép đoạn</b> (hoặc <b>Ctrl+Enter</b>).</li>
+        <li>Bên này viết liền 1 đoạn, bên kia tách thành danh sách? Kéo ô <b style="font-family:var(--mono)">⠿</b> của các hàng dưới thả vào hàng trên để <b>gộp</b> (được cả chọn nhiều hàng liền kề), rồi bấm <b style="color:var(--green)">✓ Khớp</b> / <b style="color:var(--amber)">⚠ Soát</b>.</li>
         <li>Kiểm tra các cặp <b style="color:var(--amber)">Cần soát</b>, xác nhận hoặc bỏ ghép từng hàng.</li>
         <li>Nhấn <b>⬇ Xuất file</b> — đoạn thiếu một phía sẽ ghi đúng chữ <code style="font-family:var(--mono)">none</code>.</li>
       </ol>
@@ -462,7 +501,7 @@
 <footer class="statusbar">
   <span class="live"><span class="dot"></span> Hoạt động cục bộ 100%</span>
   <span id="portInfo">cổng 3000</span>
-  <span title="Bản 2.3 — trích mục danh sách <li> khi tải URL + tô màu 3 mức (xanh/vàng/đỏ) + xuất CSV/HTML/XLIFF">bản 2.3</span>
+  <span title="Bản 2.4 — kéo–thả gộp hàng (1 EN ↔ nhiều VI) · Bản 2.3: trích mục danh sách <li> khi tải URL + tô màu 3 mức + xuất CSV/HTML/XLIFF + LaBSE tuỳ chọn">bản 2.4</span>
   <span>phiên: <span id="curSession">—</span></span>
   <span class="right">
     <span><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> ghép nhanh</span>
@@ -522,6 +561,9 @@ const S = {
   format: "tsv",
   busy: false,
   labseReady: false,  // LaBSE service có đang chạy không (từ /api/model-status)
+  sel: [],            // BẢN 2.4 — các hàng đang chọn để kéo–thả gộp (chỉ số hàng)
+  selAnchor: null,
+  drag: null,         // {top, count} khi đang kéo
 };
 
 const $ = (id) => document.getElementById(id);
@@ -674,6 +716,35 @@ function filteredRows(){
 }
 const RENDER_CAP_DEFAULT = 400;
 let renderCap = RENDER_CAP_DEFAULT;
+
+/* ================= BẢN 2.4 — hàng gộp (kéo–thả) ================= */
+/* Các đoạn của một phía (đoạn chính + đoạn gộp), kèm chỉ số gốc */
+function segsOf(side, r){
+  const segs = [];
+  if (side === "en"){
+    if (r.en != null && r.en_index != null) segs.push({ i: r.en_index, text: r.en });
+    (r.en_extra || []).forEach(s => segs.push({ i: s.index, text: s.text }));
+  } else {
+    if (r.vi != null && r.vi_index != null) segs.push({ i: r.vi_index, text: r.vi });
+    (r.vi_extra || []).forEach(s => segs.push({ i: s.index, text: s.text }));
+  }
+  return segs;
+}
+function cellHtml(side, r){
+  const segs = segsOf(side, r);
+  const LANG = side === "en" ? "EN" : "VI";
+  if (segs.length === 0){
+    const miss = side === "en" ? "không có đoạn tiếng Anh" : "không có bản dịch";
+    return `<div class="cell ${side} missing"><span class="tag">${LANG}</span><div class="text"><b>none</b> — ${miss}</div></div>`;
+  }
+  const multi = segs.length > 1;
+  const tag = multi ? `${LANG} · ${segs.map(s => s.i + 1).join(" + ")}` : `${LANG} · ${segs[0].i + 1}`;
+  const body = segs.map((s, k) => k === 0
+    ? `<div class="text">${esc(s.text)}</div>`
+    : `<div class="seg-extra"><span class="mtag" title="Đoạn gốc số ${s.i + 1} — đã gộp vào hàng này">+${s.i + 1}</span><div class="text">${esc(s.text)}</div></div>`
+  ).join("");
+  return `<div class="cell ${side}"><span class="tag">${tag}</span>${body}</div>`;
+}
 function renderRows(){
   const list = $("rowsList");
   const rows = filteredRows();
@@ -682,20 +753,21 @@ function renderRows(){
     return;
   }
   const shown = rows.slice(0, renderCap);
-  const thr = S.current ? S.current.options.autoThreshold : 0.30;
   const html = shown.map(r => {
     const meta = STATUS_META[r.status] || STATUS_META.unmatched;
+    const enSegs = segsOf("en", r);
+    const viSegs = segsOf("vi", r);
+    const paired = enSegs.length > 0 && viSegs.length > 0;
+    const isMerged = enSegs.length > 1 || viSegs.length > 1;
     const pct = r.score != null ? Math.round(r.score * 100) : null;
-    const enCell = r.en != null
-      ? `<div class="cell en"><span class="tag">EN · ${r.en_index + 1}</span><div class="text">${esc(r.en)}</div></div>`
-      : `<div class="cell en missing"><span class="tag">EN</span><div class="text"><b>none</b> — không có đoạn tiếng Anh</div></div>`;
-    const viCell = r.vi != null
-      ? `<div class="cell vi"><span class="tag">VI · ${r.vi_index + 1}</span><div class="text">${esc(r.vi)}</div></div>`
-      : `<div class="cell vi missing"><span class="tag">VI</span><div class="text"><b>none</b> — không có bản dịch</div></div>`;
-    const paired = r.en != null && r.vi != null;
     const meter = pct != null
       ? `<div class="meter" title="Điểm tương đồng ${pct}%"><i style="width:${Math.min(100, pct)}%"></i></div><span class="score">${pct}%</span>`
-      : `<span class="score" style="opacity:.55">— không ghép —</span>`;
+      : (isMerged
+          ? `<span class="score">— đã gộp tay —</span>`
+          : `<span class="score" style="opacity:.55">— không ghép —</span>`);
+    const mergechip = isMerged
+      ? `<span class="mergechip" title="Hàng này gộp nhiều đoạn gốc (kéo–thả)">🔗 ${enSegs.length} EN · ${viSegs.length} VI</span>`
+      : "";
     /* BẢN 2.3 — đúng 3 nút đánh dấu theo yêu cầu (xanh/vàng/đỏ):
        ✓ Khớp → human_confirmed · ⚠ Soát → needs_review · ✕ Không khớp → unmatched (tách cặp).
        Hàng một phía: nút vàng không áp dụng (bị khoá), nút xanh = xác nhận không có bản dịch. */
@@ -707,22 +779,30 @@ function renderRows(){
       `<button class="mk mk-yellow${isReview ? " on" : ""}" data-a="needs_review" ${(!paired || isReview) ? "disabled" : ""} title="${paired ? "Cần soát / khớp một phần — để dành xem lại" : "Hàng một phía không có mức soát"}">⚠ Soát</button>`,
       `<button class="mk mk-red${isUnmatch ? " on" : ""}" data-a="unmatched" ${isUnmatch ? "disabled" : ""} title="${paired ? "Không khớp hoàn toàn — tách cặp, mỗi phía xuất 'none'" : "Trở lại “Không khớp”"}">✕ Không khớp</button>`,
     ].join("");
+    /* BẢN 2.4 — grip kéo–thả + nút ⇡ Gộp (phím tắt cảm ứng cho thao tác kéo) */
+    const mergebtn = `<button class="railbtn" data-merge="${r.index}" ${r.index === 0 ? "disabled" : ""} title="Gộp hàng này (hoặc cả vùng đang chọn) vào hàng phía trên — phím tắt cho kéo–thả">⇡<span> Gộp</span></button>`;
     const hint = paired ? "" : `<div class="hint-none">xuất file sẽ ghi chữ “none” phía thiếu</div>`;
     return `<div class="row st-${meta.cls}" data-i="${r.index}">
-      <div class="rownum">${r.index + 1}</div>
-      ${enCell}
+      <div class="rownum">
+        <div class="grip" draggable="true" tabindex="0" role="button" aria-label="Chọn hoặc kéo để gộp hàng ${r.index + 1} vào hàng trên" title="Kéo thả vào hàng phía trên để GỘP (bấm để chọn; giữ Shift + bấm để chọn vùng nhiều hàng liền kề)"><span aria-hidden="true">⠿</span></div>
+        <span class="num">${r.index + 1}</span>
+        ${mergebtn}
+      </div>
+      ${cellHtml("en", r)}
       <div class="mid">
         <span class="badge ${meta.badge}">${meta.vi}</span>
+        ${mergechip}
         ${meter}
         <div class="acts">${acts}</div>
         ${hint}
       </div>
-      ${viCell}
+      ${cellHtml("vi", r)}
     </div>`;
   }).join("");
   const more = rows.length > renderCap
     ? `<button class="btn showmore" id="btnShowMore">Hiện thêm (còn ${rows.length - renderCap} hàng)</button>` : "";
   list.innerHTML = html + more;
+  paintSelection();
 }
 
 /* ================= Hành động trên hàng ================= */
@@ -737,6 +817,7 @@ async function setRowStatus(index, status){
     S.current.rows = data.rows;
     S.current.counts = data.counts;
     S.current.updatedAt = data.updatedAt;
+    S.sel = []; // tách cặp làm đổi chỉ số hàng — xoá vùng chọn cũ
     render();
     const vi = STATUS_META[status] ? STATUS_META[status].vi : status;
     toast(`Đã cập nhật hàng ${index + 1} → “${vi}”.`, "ok", 2600);
@@ -745,10 +826,159 @@ async function setRowStatus(index, status){
   }
 }
 
+/* ================= BẢN 2.4 — chọn hàng + kéo–thả gộp ================= */
+function selContiguous(){
+  if (S.sel.length === 0) return false;
+  for (let k = 1; k < S.sel.length; k++){
+    if (S.sel[k] !== S.sel[k - 1] + 1) return false;
+  }
+  return true;
+}
+function toggleSel(i, shiftKey){
+  if (shiftKey && S.selAnchor != null){
+    const a = Math.min(S.selAnchor, i), b = Math.max(S.selAnchor, i);
+    S.sel = [];
+    for (let k = a; k <= b; k++) S.sel.push(k);
+  } else {
+    const at = S.sel.indexOf(i);
+    if (at >= 0){
+      S.sel.splice(at, 1);
+    } else {
+      S.sel.push(i);
+      S.sel.sort((x, y) => x - y);
+      S.selAnchor = i;
+    }
+  }
+  paintSelection();
+}
+function paintSelection(){
+  document.querySelectorAll("#rowsList .row").forEach(el => {
+    const i = parseInt(el.dataset.i, 10);
+    el.classList.toggle("selected", S.sel.includes(i));
+  });
+  updateMergeButtons();
+}
+function updateMergeButtons(){
+  document.querySelectorAll("#rowsList .railbtn").forEach(btn => {
+    const i = parseInt(btn.dataset.merge, 10);
+    const multi = S.sel.length > 1 && selContiguous() && S.sel[0] === i;
+    btn.innerHTML = multi ? `⇡<span> Gộp ${S.sel.length}</span>` : `⇡<span> Gộp</span>`;
+    btn.title = multi
+      ? `Gộp ${S.sel.length} hàng đang chọn (từ hàng này) vào hàng phía trên`
+      : "Gộp hàng này (hoặc cả vùng đang chọn) vào hàng phía trên — phím tắt cho kéo–thả";
+  });
+}
+
+function onDragStart(ev){
+  const grip = ev.target.closest(".grip");
+  if (!grip) return;
+  if (!S.current){ ev.preventDefault(); return; }
+  if (S.filter !== "all"){
+    toast("Hãy chọn mục lọc “Tổng” trước khi kéo–thả (cần nhìn thấy đủ các hàng liền kề).", "warn", 5200);
+    ev.preventDefault();
+    return;
+  }
+  const rowEl = grip.closest(".row");
+  const i = parseInt(rowEl.dataset.i, 10);
+  let group = [i];
+  if (S.sel.includes(i) && S.sel.length > 1 && selContiguous()){
+    group = S.sel.slice();
+  } else {
+    S.sel = [i];
+    S.selAnchor = i;
+    paintSelection();
+  }
+  S.drag = { top: group[0], count: group.length };
+  try {
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", "rows:" + group.join(","));
+  } catch {}
+  document.body.classList.add("dragging");
+}
+function validDropIndex(){
+  return S.drag && S.drag.top > 0 ? S.drag.top - 1 : null;
+}
+function onDragOver(ev){
+  if (!S.drag) return;
+  const rowEl = ev.target.closest(".row");
+  const vi = validDropIndex();
+  const ok = !!(rowEl && vi != null && parseInt(rowEl.dataset.i, 10) === vi);
+  document.querySelectorAll("#rowsList .row.droptarget").forEach(el => el.classList.remove("droptarget"));
+  if (ok){
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+    rowEl.classList.add("droptarget");
+  } else if (ev.dataTransfer){
+    ev.dataTransfer.dropEffect = "none";
+  }
+}
+function cleanupDrag(){
+  S.drag = null;
+  document.body.classList.remove("dragging");
+  document.querySelectorAll(".row.droptarget").forEach(el => el.classList.remove("droptarget"));
+}
+function onDrop(ev){
+  ev.preventDefault();
+  if (!S.drag) return;
+  const vi = validDropIndex();
+  const { top, count } = S.drag;
+  cleanupDrag();
+  if (vi == null) return;
+  mergeUp(top, count);
+}
+function flashRow(i){
+  const el = document.querySelector(`#rowsList .row[data-i="${i}"]`);
+  if (!el) return;
+  el.classList.add("justmerged");
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  setTimeout(() => el.classList.remove("justmerged"), 1700);
+}
+/** Gộp `count` hàng bắt đầu từ hàng `top` (0-based) vào hàng phía trên (top-1). */
+async function mergeUp(top, count){
+  const cur = S.current;
+  if (!cur) return;
+  busy(true, "Đang gộp hàng…", count > 1 ? `${count} hàng vào hàng ${top}` : `hàng ${top + 1} vào hàng ${top}`);
+  try {
+    for (let k = count - 1; k >= 0; k--){
+      const target = top + k - 1; // merge_next(target) hấp thụ hàng target+1
+      const data = await api(`/api/sessions/${encodeURIComponent(cur.id)}/rows/${target}/merge`, {
+        method: "POST",
+        body: JSON.stringify({ status: null }),
+      });
+      S.current.rows = data.rows;
+      S.current.counts = data.counts;
+      S.current.updatedAt = data.updatedAt;
+    }
+    S.sel = [];
+    render();
+    flashRow(top - 1);
+    toast(`Đã gộp ${count + 1} hàng thành một (hàng ${top}) — kiểm lại rồi bấm ✓ Khớp / ⚠ Soát.`, "ok", 6500);
+  } catch (e){
+    toast("Không gộp được: " + e.message, "err", 7000);
+    S.sel = [];
+    render();
+  } finally {
+    busy(false);
+  }
+}
+async function onMergeBtn(i){
+  if (!S.current) return;
+  if (i === 0){
+    toast("Hàng đầu tiên không có hàng phía trên để gộp.", "warn");
+    return;
+  }
+  let count = 1;
+  if (S.sel.length > 1 && selContiguous() && S.sel[0] === i){
+    count = S.sel.length;
+  }
+  await mergeUp(i, count);
+}
+
 /* ================= Phiên ================= */
 function newSession(keepText){
   S.current = null;
   S.filter = "all";
+  S.sel = [];
   render();
   if (!keepText){ /* giữ nguyên văn bản để chỉnh sửa rồi ghép lại */ }
   toast("Đã bắt đầu phiên làm việc mới. Văn bản hai bên được giữ lại để bạn chỉnh sửa — nhấn “Ghép đoạn” khi sẵn sàng.", "ok", 5200);
@@ -768,6 +998,7 @@ async function openSession(id){
     const data = await api(`/api/sessions/${encodeURIComponent(id)}`);
     S.current = data;
     S.filter = "all";
+    S.sel = [];
     $("enText").value = (data.english || []).join("\n\n");
     $("viText").value = (data.vietnamese || []).join("\n\n");
     refreshCounts();
@@ -883,7 +1114,7 @@ async function fetchUrl(side){
 /* ================= Selftest ================= */
 async function runSelftest(){
   $("stModal").classList.add("show");
-  $("stBody").innerHTML = `<p style="color:var(--muted)">Đang chạy 21 bài kiểm tra nội bộ…</p>`;
+  $("stBody").innerHTML = `<p style="color:var(--muted)">Đang chạy 25 bài kiểm tra nội bộ…</p>`;
   try {
     const d = await api("/api/selftest");
     const pills = `
@@ -900,7 +1131,7 @@ async function runSelftest(){
       </div>`).join("");
     $("stBody").innerHTML = `<div class="st-summary">${pills}</div>` + items +
       (d.failed === 0
-        ? `<p style="color:var(--green);font-weight:700;margin:10px 2px">✓ Toàn bộ đạt — gồm 4 bài hồi quy (regression) cho lỗi “panic index 61”, “không ghép được bài thứ hai”, “nút Ghép bị mờ sau khi tải URL”, “tải URL mất mục danh sách &lt;li&gt;”, 1 bài tích hợp LaBSE (dịch vụ nhúng giả lập) và 1 bài xuất CSV/HTML/XLIFF.</p>`
+        ? `<p style="color:var(--green);font-weight:700;margin:10px 2px">✓ Toàn bộ đạt — gồm 4 bài hồi quy (regression) cho lỗi “panic index 61”, “không ghép được bài thứ hai”, “nút Ghép bị mờ sau khi tải URL”, “tải URL mất mục danh sách &lt;li&gt;”, 1 bài tích hợp LaBSE (dịch vụ nhúng giả lập), 1 bài xuất CSV/HTML/XLIFF và 4 bài gộp hàng kéo–thả (1 EN ↔ nhiều VI).</p>`
         : `<p style="color:var(--rose);font-weight:700;margin:10px 2px">✗ Có ${d.failed} bài lỗi — gửi kèm nội dung chi tiết này nếu cần hỗ trợ.</p>`);
   } catch (e){
     $("stBody").innerHTML = `<p style="color:var(--rose)">Không chạy được selftest: ${esc(e.message)}</p>`;
@@ -983,8 +1214,39 @@ document.addEventListener("DOMContentLoaded", () => {
     setRowStatus(i, b.dataset.a);
   });
 
-  $("rowsList").addEventListener("click", (ev) => {
+  // ---- BẢN 2.4: grip chọn hàng / nút ⇡ Gộp / kéo–thả ----
+  const rowsList = $("rowsList");
+  rowsList.addEventListener("click", (ev) => {
+    const grip = ev.target.closest(".grip");
+    if (grip){
+      const i = parseInt(grip.closest(".row").dataset.i, 10);
+      toggleSel(i, ev.shiftKey);
+      return;
+    }
+    const mb = ev.target.closest(".railbtn[data-merge]");
+    if (mb){
+      onMergeBtn(parseInt(mb.dataset.merge, 10));
+      return;
+    }
     if (ev.target.id === "btnShowMore"){ renderCap += 600; renderRows(); }
+  });
+  rowsList.addEventListener("keydown", (ev) => {
+    const grip = ev.target.closest(".grip");
+    if (grip && (ev.key === "Enter" || ev.key === " ")){
+      ev.preventDefault();
+      const i = parseInt(grip.closest(".row").dataset.i, 10);
+      toggleSel(i, ev.shiftKey);
+    }
+  });
+  rowsList.addEventListener("dragstart", onDragStart);
+  rowsList.addEventListener("dragover", onDragOver);
+  rowsList.addEventListener("drop", onDrop);
+  rowsList.addEventListener("dragend", cleanupDrag);
+  rowsList.addEventListener("dragleave", (ev) => {
+    // rời khỏi vùng danh sách thì bỏ highlight
+    if (!ev.relatedTarget || !rowsList.contains(ev.relatedTarget)){
+      document.querySelectorAll(".row.droptarget").forEach(el => el.classList.remove("droptarget"));
+    }
   });
 
   $("enText").addEventListener("input", refreshCounts);

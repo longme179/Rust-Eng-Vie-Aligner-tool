@@ -116,6 +116,21 @@ impl Status {
 
 // ========================= Dữ liệu =========================
 
+/// Một đoạn bổ sung được gộp vào hàng sau khi người dùng kéo–thả gộp hàng (bản 2.4).
+/// Trường `index` là chỉ số đoạn GỐC trong `english` / `vietnamese` của phiên —
+/// giữ để bảo đảm bất biến “mỗi đoạn dùng đúng 1 lần” khi kiểm tra và xuất file.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Seg {
+    pub index: usize,
+    pub text: String,
+}
+
+impl Seg {
+    pub fn new(index: usize, text: String) -> Seg {
+        Seg { index, text }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Row {
     pub index: usize,
@@ -123,8 +138,65 @@ pub struct Row {
     pub vi_index: Option<usize>,
     pub en: Option<String>,
     pub vi: Option<String>,
+    /// Các đoạn tiếng Anh BỔ SUNG gộp vào hàng (rỗng khi hàng chưa từng gộp).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub en_extra: Vec<Seg>,
+    /// Các đoạn tiếng Việt BỔ SUNG gộp vào hàng (rỗng khi hàng chưa từng gộp).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vi_extra: Vec<Seg>,
     pub status: Status,
     pub score: Option<f64>,
+}
+
+impl Row {
+    /// Hàng “một phía” dùng khi tách / khởi tạo nhanh (không gộp).
+    pub fn single_side(en: Option<(usize, String)>, vi: Option<(usize, String)>, status: Status) -> Row {
+        Row {
+            index: 0,
+            en_index: en.as_ref().map(|(i, _)| *i),
+            vi_index: vi.as_ref().map(|(i, _)| *i),
+            en: en.map(|(_, t)| t),
+            vi: vi.map(|(_, t)| t),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status,
+            score: None,
+        }
+    }
+
+    /// Danh sách đoạn tiếng Anh của hàng (đoạn chính + đoạn gộp), kèm chỉ số gốc.
+    pub fn en_segments(&self) -> Vec<(usize, &str)> {
+        let mut v: Vec<(usize, &str)> = Vec::with_capacity(1 + self.en_extra.len());
+        if let (Some(i), Some(t)) = (self.en_index, self.en.as_deref()) {
+            v.push((i, t));
+        }
+        for s in &self.en_extra {
+            v.push((s.index, s.text.as_str()));
+        }
+        v
+    }
+
+    /// Danh sách đoạn tiếng Việt của hàng (đoạn chính + đoạn gộp), kèm chỉ số gốc.
+    pub fn vi_segments(&self) -> Vec<(usize, &str)> {
+        let mut v: Vec<(usize, &str)> = Vec::with_capacity(1 + self.vi_extra.len());
+        if let (Some(i), Some(t)) = (self.vi_index, self.vi.as_deref()) {
+            v.push((i, t));
+        }
+        for s in &self.vi_extra {
+            v.push((s.index, s.text.as_str()));
+        }
+        v
+    }
+
+    /// Hàng có đoạn tiếng Anh (kể cả đoạn gộp)?
+    pub fn has_en(&self) -> bool {
+        self.en_index.is_some() || !self.en_extra.is_empty()
+    }
+
+    /// Hàng có đoạn tiếng Việt (kể cả đoạn gộp)?
+    pub fn has_vi(&self) -> bool {
+        self.vi_index.is_some() || !self.vi_extra.is_empty()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -612,6 +684,8 @@ pub fn align_with_emb(
                     vi_index: Some(*b),
                     en: english.get(*a).cloned(),
                     vi: vietnamese.get(*b).cloned(),
+                    en_extra: Vec::new(),
+                    vi_extra: Vec::new(),
                     status,
                     score: Some((s * 1000.0).round() / 1000.0),
                 }
@@ -622,6 +696,8 @@ pub fn align_with_emb(
                 vi_index: None,
                 en: english.get(*a).cloned(),
                 vi: None,
+                en_extra: Vec::new(),
+                vi_extra: Vec::new(),
                 status: Status::Unmatched,
                 score: None,
             },
@@ -631,6 +707,8 @@ pub fn align_with_emb(
                 vi_index: Some(*b),
                 en: None,
                 vi: vietnamese.get(*b).cloned(),
+                en_extra: Vec::new(),
+                vi_extra: Vec::new(),
                 status: Status::Unmatched,
                 score: None,
             },
@@ -677,8 +755,8 @@ pub fn validate_invariants(out: &AlignOutput) -> Result<(), String> {
         if !ALL_STATUSES.contains(&row.status) {
             return Err(format!("hàng {}: trạng thái lạ {:?}", row.index, row.status));
         }
-        let has_en = row.en_index.is_some();
-        let has_vi = row.vi_index.is_some();
+        let has_en = row.has_en();
+        let has_vi = row.has_vi();
         if !has_en && !has_vi {
             return Err(format!("hàng {}: rỗng cả hai bên", row.index));
         }
@@ -703,8 +781,8 @@ pub fn validate_invariants(out: &AlignOutput) -> Result<(), String> {
                 row.index, row.status
             ));
         }
-        // I1 + I3 (phía Anh)
-        if let Some(a) = row.en_index {
+        // I1 + I3 (phía Anh) — tính cả các đoạn gộp (en_extra)
+        for (a, _t) in row.en_segments() {
             if a >= n {
                 return Err(format!("hàng {}: en_index {} >= {}", row.index, a, n));
             }
@@ -719,8 +797,8 @@ pub fn validate_invariants(out: &AlignOutput) -> Result<(), String> {
             }
             last_en = Some(a);
         }
-        // I2 + I3 (phía Việt)
-        if let Some(b) = row.vi_index {
+        // I2 + I3 (phía Việt) — tính cả các đoạn gộp (vi_extra)
+        for (b, _t) in row.vi_segments() {
             if b >= m {
                 return Err(format!("hàng {}: vi_index {} >= {}", row.index, b, m));
             }

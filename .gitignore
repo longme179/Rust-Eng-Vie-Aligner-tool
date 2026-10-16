@@ -2,3 +2,5 @@
 /data
 nohup.out
 *.log
+labse-service.pid
+labse-venv/

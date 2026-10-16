@@ -1,6 +1,6 @@
 [package]
 name = "en-vi-align-rust"
-version = "2.3.0"
+version = "2.4.0"
 edition = "2021"
 description = "Cánh đôi Anh–Việt — công cụ ghép đoạn văn bản Anh–Việt, chạy 100% cục bộ"
 license = "MIT"

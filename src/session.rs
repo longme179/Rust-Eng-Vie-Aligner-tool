@@ -5,7 +5,7 @@
 //!     không giữ biến toàn cục của bộ ghép.
 //!   * Bộ ghép (aligner) thuần vô trạng thái; mọi dữ liệu nằm trong Session.
 
-use crate::aligner::{AlignOptions, Row, Status, ALL_STATUSES};
+use crate::aligner::{AlignOptions, Row, Seg, Status, ALL_STATUSES};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -104,9 +104,11 @@ impl Session {
 
     /// Đặt trạng thái cho một hàng.
     /// * Với hàng ĐỦ hai bên: cho phép auto_matched / needs_review / human_confirmed.
-    ///   Chọn `unmatched` sẽ TÁCH hàng thành 2 hàng đơn phía (bỏ ghép).
+    ///   Chọn `unmatched` sẽ TÁCH hàng thành các hàng đơn phía (bỏ ghép).
     /// * Với hàng MỘT phía: cho phép human_confirmed (xác nhận "không có bản dịch")
     ///   và unmatched (trở lại).
+    /// * Hàng GỘP (n EN · m VI): tách trả về đúng n + m hàng đơn phía, giữ thứ tự gốc
+    ///   (bản 2.4 — cặp đơn giản vẫn ra 2 hàng như bản cũ).
     pub fn set_row_status(&mut self, row_index: usize, status: Status) -> Result<(), String> {
         if row_index >= self.rows.len() {
             return Err(format!("Hàng {} không tồn tại (có {} hàng).", row_index, self.rows.len()));
@@ -115,33 +117,23 @@ impl Session {
             return Err("Trạng thái không hợp lệ.".into());
         }
         let row = self.rows[row_index].clone();
-        let has_en = row.en_index.is_some();
-        let has_vi = row.vi_index.is_some();
+        let has_en = row.has_en();
+        let has_vi = row.has_vi();
 
         if status == Status::Unmatched {
             if has_en && has_vi {
-                // TÁCH cặp: hàng EN-only + hàng VI-only, chèn tại chỗ, giữ thứ tự
-                let en_row = Row {
-                    index: 0,
-                    en_index: row.en_index,
-                    vi_index: None,
-                    en: row.en.clone(),
-                    vi: None,
-                    status: Status::Unmatched,
-                    score: None,
-                };
-                let vi_row = Row {
-                    index: 0,
-                    en_index: None,
-                    vi_index: row.vi_index,
-                    en: None,
-                    vi: row.vi.clone(),
-                    status: Status::Unmatched,
-                    score: None,
-                };
+                // TÁCH hoàn toàn: mỗi đoạn một hàng đơn phía, chèn tại chỗ, giữ thứ tự
+                let mut pieces: Vec<Row> = Vec::new();
+                for (i, t) in row.en_segments() {
+                    pieces.push(Row::single_side(Some((i, t.to_string())), None, Status::Unmatched));
+                }
+                for (i, t) in row.vi_segments() {
+                    pieces.push(Row::single_side(None, Some((i, t.to_string())), Status::Unmatched));
+                }
                 self.rows.remove(row_index);
-                self.rows.insert(row_index, en_row);
-                self.rows.insert(row_index + 1, vi_row);
+                for (k, p) in pieces.into_iter().enumerate() {
+                    self.rows.insert(row_index + k, p);
+                }
                 self.reindex();
             } else {
                 // đã một phía — chỉ đổi trạng thái
@@ -161,6 +153,82 @@ impl Session {
                 self.rows[row_index].status = status;
             }
         }
+        self.updated_at = now_ms();
+        Ok(())
+    }
+
+    /// GỘP hàng kế tiếp (row_index + 1) VÀO hàng `row_index` — nền tảng cho
+    /// thao tác kéo–thả "đem các hàng VI lên chung hàng EN" (và ngược lại). (Bản 2.4)
+    ///
+    /// Nguyên tắc an toàn:
+    /// * Chỉ cho phép gộp hàng LIỀN KỀ → tính đơn điệu (I3) luôn được bảo toàn,
+    ///   không bao giờ tạo giao chéo giữa các hàng còn lại.
+    /// * Mọi đoạn của hàng dưới được chuyển sang hàng trên: nếu hàng trên còn
+    ///   trống phía đó thì thành đoạn chính, ngược lại vào `en_extra`/`vi_extra`
+    ///   (luôn giữ chỉ số đoạn gốc để kiểm tra "mỗi đoạn dùng đúng 1 lần").
+    /// * Trạng thái sau gộp: nếu chỉ định thì dùng (trừ `unmatched` — muốn tách
+    ///   thì PATCH sau); nếu không chỉ định → `needs_review` (an toàn: người
+    ///   dùng tự bấm Khớp / Cần soát sau khi gộp).
+    /// * Điểm tương đồng cũ không còn đúng ý nghĩa sau gộp → đặt lại `None`.
+    pub fn merge_next(&mut self, row_index: usize, status: Option<Status>) -> Result<(), String> {
+        if row_index >= self.rows.len() {
+            return Err(format!("Hàng {} không tồn tại (có {} hàng).", row_index, self.rows.len()));
+        }
+        if row_index + 1 >= self.rows.len() {
+            return Err("Đây đã là hàng cuối — không còn hàng phía dưới để gộp.".into());
+        }
+        if let Some(st) = status {
+            if !ALL_STATUSES.contains(&st) {
+                return Err("Trạng thái không hợp lệ.".into());
+            }
+            if st == Status::Unmatched {
+                return Err(
+                    "Không đặt 'unmatched' khi gộp — nếu muốn tách, bấm nút \"Không khớp\" sau khi gộp.".into(),
+                );
+            }
+        }
+
+        let src = self.rows.remove(row_index + 1);
+        let dst = &mut self.rows[row_index];
+
+        // ---- phía Anh: đoạn chính của hàng dưới
+        if let (Some(i), Some(t)) = (src.en_index, src.en) {
+            if dst.en.is_none() && dst.en_extra.is_empty() {
+                dst.en_index = Some(i);
+                dst.en = Some(t);
+            } else {
+                dst.en_extra.push(Seg::new(i, t));
+            }
+        }
+        // ---- phía Việt: đoạn chính của hàng dưới
+        if let (Some(i), Some(t)) = (src.vi_index, src.vi) {
+            if dst.vi.is_none() && dst.vi_extra.is_empty() {
+                dst.vi_index = Some(i);
+                dst.vi = Some(t);
+            } else {
+                dst.vi_extra.push(Seg::new(i, t));
+            }
+        }
+        // ---- các đoạn đã gộp trước đó của hàng dưới (nếu hàng dưới vốn là hàng gộp)
+        for s in src.en_extra {
+            dst.en_extra.push(s);
+        }
+        for s in src.vi_extra {
+            dst.vi_extra.push(s);
+        }
+
+        // ---- trạng thái sau gộp
+        if dst.has_en() && dst.has_vi() {
+            dst.status = status.unwrap_or(Status::NeedsReview);
+        } else {
+            // gộp xong vẫn một phía (gộp 2 hàng cùng phía) → chỉ 2 trạng thái hợp lệ
+            dst.status = match status {
+                Some(Status::HumanConfirmed) => Status::HumanConfirmed,
+                _ => Status::Unmatched,
+            };
+        }
+        dst.score = None;
+        self.reindex();
         self.updated_at = now_ms();
         Ok(())
     }

@@ -9,8 +9,10 @@
 //! Bản 2.3 thêm: `t_list_items_extract` — hồi quy "tải URL mất mục danh sách <li>"
 //! (bài SBS chỉ lấy được câu dẫn, 3 gạch đầu dòng bị bỏ);
 //! `t_export_new_formats` — xuất CSV/HTML/XLIFF (BOM, escape RFC 4180, tô màu 3 mức, none nguyên văn).
+//! Bản 2.4 thêm 4 bài gộp hàng (kéo–thả): gộp liền kề + xuất 6 định dạng,
+//! kịch bản 1 EN ↔ nhiều VI (SBS), gộp–rồi–tách đủ đoạn gốc, gộp cùng phía + xác nhận một phía.
 
-use crate::aligner::{self, AlignOptions, Status};
+use crate::aligner::{self, AlignOptions, Row, Status};
 use crate::exporter::{export_session, ExportFormat};
 use crate::fetcher;
 use crate::session::{derive_title, generate_id, Session, SessionStore};
@@ -983,6 +985,8 @@ fn t_export_new_formats() -> Result<(), String> {
             vi_index: Some(0),
             en: Some(en0.into()),
             vi: Some(vi0.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
             status: Status::AutoMatched,
             score: Some(0.85),
         },
@@ -992,6 +996,8 @@ fn t_export_new_formats() -> Result<(), String> {
             vi_index: Some(1),
             en: Some(en1.into()),
             vi: Some(vi1.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
             status: Status::NeedsReview,
             score: Some(0.5),
         },
@@ -1001,6 +1007,8 @@ fn t_export_new_formats() -> Result<(), String> {
             vi_index: None,
             en: Some(en2.into()),
             vi: None,
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
             status: Status::Unmatched,
             score: None,
         },
@@ -1010,6 +1018,8 @@ fn t_export_new_formats() -> Result<(), String> {
             vi_index: Some(2),
             en: None,
             vi: Some(vi2.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
             status: Status::HumanConfirmed,
             score: None,
         },
@@ -1121,6 +1131,285 @@ fn t_export_new_formats() -> Result<(), String> {
     Ok(())
 }
 
+// ========================= BẢN 2.4: gộp hàng (kéo–thả) =========================
+
+/// Đổi Session → AlignOutput để chạy validate_invariants trong selftest.
+fn to_output(s: &Session) -> crate::aligner::AlignOutput {
+    crate::aligner::AlignOutput {
+        english: s.english.clone(),
+        vietnamese: s.vietnamese.clone(),
+        rows: s.rows.clone(),
+        options: s.options.clone(),
+        engine: s.engine.clone(),
+    }
+}
+
+/// Dựng phiên thủ công (không qua bộ ghép) để kiểm soát chính xác từng hàng
+/// — dùng cho các bài kiểm gộp/tách ở bản 2.4.
+fn manual_session(en: Vec<String>, vi: Vec<String>, rows: Vec<Row>) -> Session {
+    let mut rows = rows;
+    for (i, r) in rows.iter_mut().enumerate() {
+        r.index = i;
+    }
+    Session {
+        id: generate_id(),
+        title: derive_title(&en, &vi),
+        created_at: 1,
+        updated_at: 1,
+        english: en,
+        vietnamese: vi,
+        rows,
+        options: AlignOptions::default(),
+        engine: "lexical".to_string(),
+    }
+}
+
+fn pair_row(a: usize, b: usize, en: &[String], vi: &[String], status: Status, score: Option<f64>) -> Row {
+    Row {
+        index: 0,
+        en_index: Some(a),
+        vi_index: Some(b),
+        en: en.get(a).cloned(),
+        vi: vi.get(b).cloned(),
+        en_extra: Vec::new(),
+        vi_extra: Vec::new(),
+        status,
+        score,
+    }
+}
+
+/// 22. Gộp 2 hàng liền kề (2 cặp) → 1 hàng 2 EN · 2 VI; xuất đủ 6 định dạng.
+fn t_merge_adjacent_and_export() -> Result<(), String> {
+    let store = temp_store("merge");
+    let mut s = align_to_session(&store, &corpus_en(), &corpus_vi())?;
+    let n0 = s.rows.len();
+    // gộp hàng 1 vào hàng 0 (hai cặp đầu)
+    s.merge_next(0, None).map_err(|e| e.to_string())?;
+    if s.rows.len() != n0 - 1 {
+        return Err(format!("sau gộp phải còn {} hàng, được {}", n0 - 1, s.rows.len()));
+    }
+    let r0 = &s.rows[0];
+    if r0.en_segments().len() != 2 || r0.vi_segments().len() != 2 {
+        return Err("hàng gộp phải có 2 EN · 2 VI".into());
+    }
+    if r0.status != Status::NeedsReview {
+        return Err("gộp mặc định phải là needs_review".into());
+    }
+    if r0.score.is_some() {
+        return Err("điểm cũ phải bị xoá sau gộp".into());
+    }
+    // hàng 0 giữ đoạn chính là đoạn 0, đoạn gộp là đoạn 1
+    let (i0, _) = r0.en_segments()[0];
+    let (i1, _) = r0.en_segments()[1];
+    if i0 != 0 || i1 != 1 {
+        return Err(format!("thứ tự đoạn gộp sai: {} rồi {}", i0, i1));
+    }
+    // gộp hàng cuối phải lỗi (không còn hàng dưới)
+    if s.merge_next(s.rows.len() - 1, None).is_ok() {
+        return Err("gộp hàng cuối phải bị từ chối".into());
+    }
+    // gộp với trạng thái unmatched phải bị từ chối
+    if s.merge_next(0, Some(Status::Unmatched)).is_ok() {
+        return Err("gộp với unmatched phải bị từ chối".into());
+    }
+    // xuất 6 định dạng — hàng gộp phải nguyên vẹn, không lỗi bất biến
+    let r = export_session(&s, ExportFormat::Tsv)?;
+    let joined = format!("{} {}", EN_ARTICLE[0], EN_ARTICLE[1]);
+    if !r.content.contains(&joined) {
+        return Err("TSV phải nối 2 đoạn EN bằng dấu cách".into());
+    }
+    let r = export_session(&s, ExportFormat::Moses)?;
+    if !r.content.contains(&format!("{} ||| ", joined)) {
+        return Err("Moses phải nối 2 đoạn EN bằng dấu cách".into());
+    }
+    let r = export_session(&s, ExportFormat::Json)?;
+    if !r.content.contains("\"enParts\"") || !r.content.contains("\"viParts\"") {
+        return Err("JSON phải có enParts/viParts cho hàng gộp".into());
+    }
+    let r = export_session(&s, ExportFormat::Csv)?;
+    // ô CSV chứa 2 dòng trong 1 ô trích dẫn: "en0\nen1"
+    if !r.content.contains(&format!("\"{}\n{}\"", EN_ARTICLE[0], EN_ARTICLE[1])) {
+        return Err("CSV phải giữ 2 đoạn trong cùng một ô (trích dẫn nhiều dòng)".into());
+    }
+    let r = export_session(&s, ExportFormat::Html)?;
+    for must in ["🔗 2 EN · 2 VI — đã gộp", "·đoạn 1", "·đoạn 2"] {
+        if !r.content.contains(must) {
+            return Err(format!("HTML thiếu {:?}", must));
+        }
+    }
+    let r = export_session(&s, ExportFormat::Xliff)?;
+    if !r.content.contains(&format!("<source xml:lang=\"en\">{}</source>", joined)) {
+        return Err("XLIFF phải nối 2 đoạn EN bằng dấu cách".into());
+    }
+    Ok(())
+}
+
+/// 23. Kịch bản SBS: 1 EN ↔ nhiều VI (1 câu dẫn + 3 gạch đầu dòng) — kéo 3 hàng VI lên.
+fn t_merge_one_to_many() -> Result<(), String> {
+    let en: Vec<String> = vec![
+        "The proposed changes include three key items for political donations.".into(),
+        "Second paragraph about the final report of the committee.".into(),
+    ];
+    let vi: Vec<String> = vec![
+        "Những thay đổi được đề xuất bao gồm ba mục chính về quyên góp chính trị.".into(),
+        "Hạ ngưỡng công bố xuống 1.000 AUD.".into(),
+        "Giới hạn chi phí vận động tranh cử ở mức 800.000 AUD.".into(),
+        "Giới hạn đóng góp của cá nhân ở mức 20.000 AUD.".into(),
+        "Đoạn thứ hai nói về báo cáo cuối cùng của uỷ ban.".into(),
+    ];
+    // bộ ghép điển hình sẽ ra: Pair(0,0) · 3 hàng VI-only · Pair(1,4)
+    let rows = vec![
+        pair_row(0, 0, &en, &vi, Status::AutoMatched, Some(0.9)),
+        Row::single_side(None, Some((1, vi[1].clone())), Status::Unmatched),
+        Row::single_side(None, Some((2, vi[2].clone())), Status::Unmatched),
+        Row::single_side(None, Some((3, vi[3].clone())), Status::Unmatched),
+        pair_row(1, 4, &en, &vi, Status::AutoMatched, Some(0.9)),
+    ];
+    let mut s = manual_session(en, vi, rows);
+    // kéo 3 hàng VI (1..3) lên gộp vào hàng 0 — đúng thứ tự UI mergeUp làm (từ dưới lên)
+    for target in (0..=2).rev() {
+        s.merge_next(target, None).map_err(|e| e.to_string())?;
+    }
+    if s.rows.len() != 2 {
+        return Err(format!("sau gộp phải còn 2 hàng, được {}", s.rows.len()));
+    }
+    let r0 = &s.rows[0];
+    if r0.en_segments().len() != 1 || r0.vi_segments().len() != 4 {
+        return Err("hàng 0 phải là 1 EN · 4 VI (câu dẫn + 3 mục)".into());
+    }
+    let idxs: Vec<usize> = r0.vi_segments().iter().map(|(i, _)| *i).collect();
+    if idxs != vec![0, 1, 2, 3] {
+        return Err(format!("đoạn VI gộp sai thứ tự: {:?}", idxs));
+    }
+    // bất biến vẫn giữ (mỗi đoạn 1 lần, đơn điệu)
+    let out = to_output(&s);
+    crate::aligner::validate_invariants(&out).map_err(|e| e.to_string())?;
+    // xuất TSV: 2 dòng, hàng 0 nối 4 đoạn VI
+    let r = export_session(&s, ExportFormat::Tsv)?;
+    if r.rows != 2 {
+        return Err(format!("TSV phải 2 hàng, được {}", r.rows));
+    }
+    let vi_joined = format!("{} {} {} {}", "Những thay đổi được đề xuất bao gồm ba mục chính về quyên góp chính trị.", "Hạ ngưỡng công bố xuống 1.000 AUD.", "Giới hạn chi phí vận động tranh cử ở mức 800.000 AUD.", "Giới hạn đóng góp của cá nhân ở mức 20.000 AUD.");
+    if !r.content.contains(&vi_joined) {
+        return Err("TSV hàng gộp phải nối đủ 4 đoạn VI".into());
+    }
+    Ok(())
+}
+
+/// 24. Gộp xong TÁCH (✕ Không khớp) → trả về đúng từng đoạn gốc, không mất, không lặp.
+fn t_merge_split_roundtrip() -> Result<(), String> {
+    let en: Vec<String> = vec![
+        "The proposed changes include three key items for political donations.".into(),
+        "Second paragraph about the final report of the committee.".into(),
+    ];
+    let vi: Vec<String> = vec![
+        "Những thay đổi được đề xuất bao gồm ba mục chính về quyên góp chính trị.".into(),
+        "Hạ ngưỡng công bố xuống 1.000 AUD.".into(),
+        "Giới hạn chi phí vận động tranh cử ở mức 800.000 AUD.".into(),
+        "Giới hạn đóng góp của cá nhân ở mức 20.000 AUD.".into(),
+        "Đoạn thứ hai nói về báo cáo cuối cùng của uỷ ban.".into(),
+    ];
+    let rows = vec![
+        pair_row(0, 0, &en, &vi, Status::AutoMatched, Some(0.9)),
+        Row::single_side(None, Some((1, vi[1].clone())), Status::Unmatched),
+        Row::single_side(None, Some((2, vi[2].clone())), Status::Unmatched),
+        Row::single_side(None, Some((3, vi[3].clone())), Status::Unmatched),
+        pair_row(1, 4, &en, &vi, Status::AutoMatched, Some(0.9)),
+    ];
+    let mut s = manual_session(en, vi, rows);
+    for target in (0..=2).rev() {
+        s.merge_next(target, None).map_err(|e| e.to_string())?;
+    }
+    // tách hàng gộp 0 → 1 EN-only + 4 VI-only = 5 hàng
+    s.set_row_status(0, Status::Unmatched).map_err(|e| e.to_string())?;
+    if s.rows.len() != 6 {
+        return Err(format!("sau tách phải có 6 hàng (5 đơn phía + 1 cặp), được {}", s.rows.len()));
+    }
+    // 5 hàng đầu: xen kẽ EN-only rồi 4 VI-only, đúng chỉ số gốc
+    let expect: Vec<(Option<usize>, Option<usize>)> = vec![
+        (Some(0), None),
+        (None, Some(0)),
+        (None, Some(1)),
+        (None, Some(2)),
+        (None, Some(3)),
+        (Some(1), Some(4)),
+    ];
+    for (k, (ea, vb)) in expect.iter().enumerate() {
+        if (s.rows[k].en_index, s.rows[k].vi_index) != (*ea, *vb) {
+            return Err(format!("hàng {} sau tách sai cấu trúc", k));
+        }
+        if s.rows[k].status != Status::Unmatched && k != 5 {
+            return Err(format!("hàng {} sau tách phải unmatched", k));
+        }
+    }
+    // reindex
+    for (i, r) in s.rows.iter().enumerate() {
+        if r.index != i {
+            return Err(format!("reindex sai tại {}", i));
+        }
+    }
+    // xuất không lỗi; none_count = 5 (mỗi hàng đơn phía 1 ô none)
+    let r = export_session(&s, ExportFormat::Tsv)?;
+    if r.none_count != 5 {
+        return Err(format!("none_count sau tách phải 5, được {}", r.none_count));
+    }
+    let out = to_output(&s);
+    crate::aligner::validate_invariants(&out).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 25. Gộp 2 hàng cùng phía (EN-only) + xác nhận human_confirmed một phía → xuất vẫn OK.
+fn t_merge_one_side_and_human_confirm() -> Result<(), String> {
+    let en: Vec<String> = vec![
+        "First paragraph only in English without any translation.".into(),
+        "Second paragraph also only in English.".into(),
+        "Third paragraph has its Vietnamese counterpart.".into(),
+    ];
+    let vi: Vec<String> = vec!["Đoạn thứ ba có bản dịch tiếng Việt.".into()];
+    let rows = vec![
+        Row::single_side(Some((0, en[0].clone())), None, Status::Unmatched),
+        Row::single_side(Some((1, en[1].clone())), None, Status::Unmatched),
+        pair_row(2, 0, &en, &vi, Status::AutoMatched, Some(0.9)),
+    ];
+    let mut s = manual_session(en, vi, rows);
+    // gộp 2 hàng EN-only → vẫn một phía → mặc định Unmatched
+    s.merge_next(0, None).map_err(|e| e.to_string())?;
+    if s.rows.len() != 2 {
+        return Err("sau gộp phải còn 2 hàng".into());
+    }
+    let r0 = &s.rows[0];
+    if r0.en_segments().len() != 2 || r0.vi_segments().len() != 0 {
+        return Err("hàng gộp phải 2 EN · 0 VI".into());
+    }
+    if r0.status != Status::Unmatched {
+        return Err("gộp cùng phía mặc định phải unmatched".into());
+    }
+    // xác nhận "không có bản dịch" → human_confirmed một phía (ngoại lệ I4 có chủ đích)
+    s.set_row_status(0, Status::HumanConfirmed).map_err(|e| e.to_string())?;
+    // xuất qua đủ 6 định dạng — không được vỡ bất biến
+    for fmt in [
+        ExportFormat::Tsv,
+        ExportFormat::Moses,
+        ExportFormat::Json,
+        ExportFormat::Csv,
+        ExportFormat::Html,
+        ExportFormat::Xliff,
+    ] {
+        let r = export_session(&s, fmt)?;
+        if r.none_count != 1 {
+            return Err(format!("{:?}: none_count phải 1, được {:?}", fmt, r.none_count));
+        }
+        if !r.content.contains("none") {
+            return Err(format!("{:?}: thiếu chữ none nguyên văn", fmt));
+        }
+    }
+    // hàng một phía không nhận needs_review/auto_matched
+    if s.set_row_status(0, Status::NeedsReview).is_ok() {
+        return Err("hàng một phía không được nhận needs_review".into());
+    }
+    Ok(())
+}
+
 /// Chạy toàn bộ bộ kiểm. Mỗi bài chạy trong thread riêng để panic (nếu có)
 /// không làm sập cả tiến trình — panics được coi là FAIL có thông báo.
 pub fn run_all() -> Vec<TestResult> {
@@ -1146,6 +1435,10 @@ pub fn run_all() -> Vec<TestResult> {
         ("19. [TÍCH HỢP] LaBSE: hoà trộn điểm + engine + đường ống HTTP (service giả lập)", t_labse_integration),
         ("20. [REGRESSION] trích <li> danh sách khi tải URL (SBS mất 3 gạch đầu dòng)", t_list_items_extract),
         ("21. xuất mới: CSV (BOM+escape) / HTML (3 màu) / XLIFF 1.2 — none nguyên văn", t_export_new_formats),
+        ("22. [BẢN 2.4] gộp 2 hàng liền kề → 2 EN · 2 VI, xuất đủ 6 định dạng", t_merge_adjacent_and_export),
+        ("23. [BẢN 2.4] kịch bản SBS: gộp 3 hàng VI vào 1 EN (1 · 4 VI)", t_merge_one_to_many),
+        ("24. [BẢN 2.4] gộp xong tách → đủ từng đoạn gốc, none đúng chỗ", t_merge_split_roundtrip),
+        ("25. [BẢN 2.4] gộp cùng phía + xác nhận một phía (human_confirmed)", t_merge_one_side_and_human_confirm),
     ];
 
     let mut results = Vec::with_capacity(tests.len());

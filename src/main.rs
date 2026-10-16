@@ -1,6 +1,7 @@
-//! main.rs — Cánh đôi Anh–Việt (canh-doi-anh-viet) v2.3
+//! main.rs — Cánh đôi Anh–Việt (canh-doi-anh-viet) v2.4
 //! Web server 1-binary: giao diện + API, chạy 100% cục bộ.
-//! Bản 2.3: trích <li> khi tải URL + tô màu 3 mức + xuất CSV/HTML/XLIFF.
+//! Bản 2.4: kéo–thả gộp hàng (1 EN ↔ nhiều VI) + API gộp hàng.
+//! Bản 2.3: trích <li> khi tải URL + tô màu 3 mức + xuất CSV/HTML/XLIFF + LaBSE tuỳ chọn.
 
 mod aligner;
 mod embedder;
@@ -277,6 +278,53 @@ async fn api_row_status(
     ok_json(session_value(&s, false))
 }
 
+#[derive(Deserialize, Default)]
+struct RowMergeRequest {
+    /// Tuỳ chọn: trạng thái đặt cho hàng sau khi gộp (mặc định needs_review).
+    #[serde(default)]
+    status: Option<String>,
+}
+
+/// GỘP hàng kế tiếp vào hàng `index` (kéo–thả gộp hàng trên giao diện — bản 2.4).
+/// Chấp nhận body rỗng hoặc `{"status": null}` — mặc định needs_review.
+async fn api_row_merge(
+    State(state): State<SharedState>,
+    Path((id, index)): Path<(String, usize)>,
+    body: Option<Json<RowMergeRequest>>,
+) -> Response {
+    let req = body.map(|Json(r)| r).unwrap_or_default();
+    let status = match req.status.as_deref() {
+        None => None,
+        Some(s) => match aligner::Status::parse(s) {
+            Some(st) => Some(st),
+            None => {
+                return err_json(
+                    StatusCode::BAD_REQUEST,
+                    "Trạng thái phải là một trong: auto_matched, needs_review, unmatched, human_confirmed.",
+                )
+            }
+        },
+    };
+    let mut s = match state.store.get(&id) {
+        Some(s) => s,
+        None => return err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên."),
+    };
+    if let Err(e) = s.merge_next(index, status) {
+        return err_json(StatusCode::BAD_REQUEST, &e);
+    }
+    if let Err(e) = state.store.save(&s) {
+        return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được: {}", e));
+    }
+    println!(
+        "[canh-doi-anh-viet] gộp hàng {} vào hàng {} (phiên {}, còn {} hàng)",
+        index + 1,
+        index,
+        id,
+        s.rows.len()
+    );
+    ok_json(session_value(&s, false))
+}
+
 #[derive(Deserialize)]
 struct ExportRequest {
     #[serde(alias = "sessionId")]
@@ -408,7 +456,7 @@ struct DebugQuery {
 }
 
 async fn api_not_found(Query(_q): Query<DebugQuery>) -> Response {
-    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health.")
+    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health, /api/sessions/{id}/rows/{index} (PATCH đổi trạng thái), /api/sessions/{id}/rows/{index}/merge (POST gộp hàng).")
 }
 
 // ========================= Main =========================
@@ -475,6 +523,7 @@ async fn main() {
         .route("/api/sessions", get(api_sessions).delete(api_sessions_delete_all))
         .route("/api/sessions/{id}", get(api_session_get).delete(api_session_delete))
         .route("/api/sessions/{id}/rows/{index}", patch(api_row_status))
+        .route("/api/sessions/{id}/rows/{index}/merge", post(api_row_merge))
         .route("/api/export", post(api_export))
         .route("/api/fetch-url", post(api_fetch_url))
         .route("/api/selftest", get(api_selftest))

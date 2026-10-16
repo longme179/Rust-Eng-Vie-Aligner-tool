@@ -7,6 +7,12 @@
 //! BẢN 2.3 — thêm 3 định dạng theo yêu cầu: CSV (Excel mở đúng tiếng Việt nhờ BOM +
 //! escape RFC 4180), HTML (bảng đối chiếu tô màu theo trạng thái), XLIFF 1.2 (dùng cho
 //! công cụ dịch/CAT). Các định dạng cũ (TSV / Moses / JSON) giữ nguyên từng byte.
+//!
+//! BẢN 2.4 — hỗ trợ HÀNG GỘP (kéo–thả 1 EN ↔ nhiều VI):
+//! * TSV / Moses / XLIFF: các đoạn gộp nối bằng dấu cách.
+//! * CSV: các đoạn gộp nằm trong CÙNG MỘT Ô, mỗi đoạn một dòng (trích dẫn RFC 4180).
+//! * JSON: `en`/`vi` nối bằng dấu cách + kèm `enParts`/`viParts` khi >1 đoạn.
+//! * HTML: mỗi đoạn gộp một dòng trong ô, kèm nhãn số đoạn gốc.
 
 use crate::aligner::{validate_invariants, AlignOutput, Row, Status};
 use crate::session::Session;
@@ -65,25 +71,58 @@ fn one_line(s: &str) -> String {
         .join(" ")
 }
 
+/// Ghép các đoạn phía Anh của một hàng thành 1 chuỗi; None khi phía đó thiếu (→ `none`).
+fn en_joined(r: &Row, sep: &str) -> Option<String> {
+    let segs = r.en_segments();
+    if segs.is_empty() {
+        return None;
+    }
+    Some(
+        segs.iter()
+            .map(|(_, t)| one_line(t))
+            .collect::<Vec<_>>()
+            .join(sep),
+    )
+}
+
+/// Ghép các đoạn phía Việt của một hàng thành 1 chuỗi; None khi phía đó thiếu (→ `none`).
+fn vi_joined(r: &Row, sep: &str) -> Option<String> {
+    let segs = r.vi_segments();
+    if segs.is_empty() {
+        return None;
+    }
+    Some(
+        segs.iter()
+            .map(|(_, t)| one_line(t))
+            .collect::<Vec<_>>()
+            .join(sep),
+    )
+}
+
 /// Chuẩn hoá một hàng thành 2 ô (en, vi): phía thiếu → ĐÚNG CHỮ `none` (quy ước gốc).
-/// Trả về (en, vi, số phía thiếu 0..2).
-fn row_cells(r: &Row) -> (String, String, usize) {
+/// Trả về (en, vi, số phía thiếu 0..2). Hàng gộp: các đoạn nối bằng `sep`.
+fn row_cells_sep(r: &Row, sep: &str) -> (String, String, usize) {
     let mut none = 0usize;
-    let en = match &r.en {
-        Some(t) => one_line(t),
+    let en = match en_joined(r, sep) {
+        Some(t) => t,
         None => {
             none += 1;
             "none".to_string()
         }
     };
-    let vi = match &r.vi {
-        Some(t) => one_line(t),
+    let vi = match vi_joined(r, sep) {
+        Some(t) => t,
         None => {
             none += 1;
             "none".to_string()
         }
     };
     (en, vi, none)
+}
+
+/// Chuẩn hoá một hàng thành 2 ô nối bằng dấu cách (TSV / Moses / XLIFF / JSON.en-vi).
+fn row_cells(r: &Row) -> (String, String, usize) {
+    row_cells_sep(r, " ")
 }
 
 /// Escape một trường CSV theo RFC 4180: chứa `,` `"` `\n` `\r` → bọc `"`, `"` nội bộ → `""`.
@@ -179,10 +218,11 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
         }
         ExportFormat::Csv => {
             // BOM UTF-8 để Excel nhận đúng tiếng Việt ngay khi mở.
+            // Hàng gộp: các đoạn nằm trong cùng một ô, mỗi đoạn một dòng (RFC 4180).
             body.push('\u{FEFF}');
             body.push_str("index,status,score,en,vi\n");
             for r in &session.rows {
-                let (en, vi, none) = row_cells(r);
+                let (en, vi, none) = row_cells_sep(r, "\n");
                 none_count += none;
                 let score = match r.score {
                     Some(s) => format!("{:.3}", s),
@@ -205,13 +245,27 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                 .map(|r| {
                     let (en, vi, none) = row_cells(r);
                     none_count += none;
-                    serde_json::json!({
+                    let mut obj = serde_json::json!({
                         "index": r.index,
                         "status": r.status.as_str(),
                         "score": r.score,
                         "en": en,
                         "vi": vi,
-                    })
+                    });
+                    // hàng gộp (bản 2.4): kèm danh sách đoạn gốc để dùng máy được
+                    let en_segs = r.en_segments();
+                    if en_segs.len() > 1 {
+                        obj["enParts"] = serde_json::json!(
+                            en_segs.iter().map(|(_, t)| one_line(t)).collect::<Vec<_>>()
+                        );
+                    }
+                    let vi_segs = r.vi_segments();
+                    if vi_segs.len() > 1 {
+                        obj["viParts"] = serde_json::json!(
+                            vi_segs.iter().map(|(_, t)| one_line(t)).collect::<Vec<_>>()
+                        );
+                    }
+                    obj
                 })
                 .collect();
             let doc = serde_json::json!({
@@ -265,6 +319,8 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                     "td.st .pct{{display:block;font-weight:400;color:var(--muted)}}\n",
                     "td.miss{{color:#9ca3af;font-style:italic}}\n",
                     "td.miss code{{font-style:normal;font-family:ui-monospace,Menlo,Consolas,monospace;background:#f3f4f6;border-radius:5px;padding:1px 7px;font-size:12px;color:#4b5563}}\n",
+                    "span.sg{{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#9ca3af;margin-left:7px;white-space:nowrap}}\n",
+                    "span.mg{{display:inline-block;font-size:10.5px;font-weight:800;color:#7c2d12;background:#ffedd5;border:1px solid #fed7aa;border-radius:99px;padding:1px 9px;margin-bottom:4px}}\n",
                     "footer{{margin-top:18px;color:var(--muted);font-size:12px}}\n",
                     "</style>\n</head>\n<body>\n<main>\n",
                     "<h1>Cánh đôi Anh–Việt — kết quả ghép đoạn</h1>\n",
@@ -281,15 +337,48 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                 nr = c.unmatched,
             ));
             for r in &session.rows {
-                let (en, vi, none) = row_cells(r);
-                none_count += none;
-                let en_cell = if r.en.is_some() {
-                    format!("<td>{}</td>", html_escape(&en))
+                // Hàng gộp (bản 2.4): mỗi đoạn một dòng, kèm nhãn số đoạn gốc.
+                let en_segs = r.en_segments();
+                let vi_segs = r.vi_segments();
+                none_count += (if en_segs.is_empty() { 1 } else { 0 }) + (if vi_segs.is_empty() { 1 } else { 0 });
+                let segs_html = |segs: &Vec<(usize, &str)>| {
+                    segs.iter()
+                        .map(|(i, t)| {
+                            if segs.len() == 1 {
+                                html_escape(&one_line(t))
+                            } else {
+                                // hàng gộp: ghi rõ từng đoạn gốc số mấy để đối chiếu
+                                format!(
+                                    "{}<span class=\"sg\">·đoạn {}</span>",
+                                    html_escape(&one_line(t)),
+                                    i + 1
+                                )
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("<br>")
+                };
+                let merged_badge = |n_en: usize, n_vi: usize| {
+                    if n_en > 1 || n_vi > 1 {
+                        format!("<span class=\"mg\">🔗 {} EN · {} VI — đã gộp</span>", n_en, n_vi)
+                    } else {
+                        String::new()
+                    }
+                };
+                let en_cell = if !en_segs.is_empty() {
+                    let badge = merged_badge(en_segs.len(), vi_segs.len());
+                    let inner = segs_html(&en_segs);
+                    if badge.is_empty() {
+                        format!("<td>{}</td>", inner)
+                    } else {
+                        format!("<td>{}<br>{}</td>", badge, inner)
+                    }
                 } else {
                     format!("<td class=\"miss\"><code>none</code> — không có đoạn tiếng Anh</td>")
                 };
-                let vi_cell = if r.vi.is_some() {
-                    format!("<td>{}</td>", html_escape(&vi))
+                let vi_cell = if !vi_segs.is_empty() {
+                    let inner = segs_html(&vi_segs);
+                    format!("<td>{}</td>", inner)
                 } else {
                     format!("<td class=\"miss\"><code>none</code> — không có bản dịch</td>")
                 };
