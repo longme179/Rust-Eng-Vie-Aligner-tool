@@ -53,20 +53,21 @@ Kéo khối vào ô cùng ngôn ngữ của HÀNG BẤT KỲ (ví dụ EN có A 
 - **Sửa tay từng cặp**: xác nhận, đánh dấu cần soát, **bỏ ghép (tách cặp thành các hàng `none`)**, trở về tự động.
 - **Kéo–thả gộp hàng liền kề (bản 2.4, API `/merge`)**: gộp hàng kế tiếp vào hàng này — vẫn dùng được qua API;
   trên giao diện bản 2.5 dùng thao tác kéo khối thay thế (linh hoạt hơn và hoàn tác được).
-- **Xuất file 6 định dạng**: TSV (tab), Moses (`văn bản ||| văn bản`), JSON, **CSV (mở được bằng Excel, kèm BOM UTF-8)**, **HTML (bảng đối chiếu tô màu theo trạng thái)**, **XLIFF 1.2 (cho công cụ dịch/CAT)**. Đoạn thiếu một phía ghi đúng
-  chữ `none` — đúng quy ước bản gốc. **Hàng nhiều khối**: TSV/Moses/XLIFF nối đoạn bằng dấu cách; **CSV giữ
+- **Xuất file 7 định dạng**: TSV (tab), Moses (`văn bản ||| văn bản`), JSON, **CSV (mở được bằng Excel, kèm BOM UTF-8)**, **HTML (bảng đối chiếu tô màu theo trạng thái)**, **XLIFF 1.2 (cho công cụ dịch/CAT)**, và **Excel `.xlsx` (bản 2.7) — tự tô màu ô theo trạng thái**: hàng
+  **xanh nhạt** = khớp (tự khớp + đã xác nhận), **vàng nhạt** = cần soát/khớp một phần, **hồng nhạt** = không khớp; kèm cột STT/Điểm (%)/Trạng thái tiếng Việt, đóng băng dòng đầu, autofilter, chú giải màu dưới bảng (CSV/TSV là văn bản thuần nên không mang màu được — muốn màu trong Excel thì chọn `.xlsx`). Đoạn thiếu một phía ghi đúng
+  chữ `none` — đúng quy ước bản gốc. **Hàng nhiều khối**: TSV/Moses/XLIFF nối đoạn bằng dấu cách; **CSV và .xlsx giữ
   từng đoạn một dòng trong cùng một ô** (Excel mở vẫn đúng); JSON kèm `enParts`/`viParts`; HTML ghi rõ từng đoạn gốc.
   Xuất theo đúng **thứ tự khối đã sắp** (đổi thứ tự tuỳ ý — duy trì bất biến "mỗi đoạn đúng 1 lần").
 - **Tải bài từ URL** (`<p>` + mục danh sách `<li>` theo thứ tự tài liệu, đã lọc chrom trang): dán link bài tiếng Anh/tiếng Việt,
   công cụ tải và trích đoạn; tự **lược bỏ chrom giao diện trang** (dòng "Published…", "Share this with…", lời mời đăng ký
   bản tin, địa chỉ bưu điện…) — chỉ giữ nội dung thật của bài.
-- **Tô màu 3 mức theo trạng thái** (bản 2.3): hàng **xanh** = khớp/khớp phần lớn (tự khớp + đã xác nhận), hàng **vàng** = cần soát/khớp một phần, hàng **đỏ** = không khớp hoàn toàn — áp cả trong giao diện lẫn file HTML xuất ra.
+- **Tô màu 3 mức theo trạng thái** (bản 2.3): hàng **xanh** = khớp/khớp phần lớn (tự khớp + đã xác nhận), hàng **vàng** = cần soát/khớp một phần, hàng **đỏ** = không khớp hoàn toàn — áp cả trong giao diện lẫn file HTML xuất ra; từ bản 2.7 file **Excel `.xlsx`** cũng tự tô màu từng hàng (xanh nhạt/vàng nhạt/hồng nhạt).
 - **Đúng 3 nút đánh dấu trên mỗi hàng** (bản 2.3): `✓ Khớp` (xanh) · `⚠ Soát` (vàng) · `✕ Không khớp` (đỏ, tách cặp thành các hàng `none`) — bấm xong xuất file là xong.
-- **Tự kiểm tra (selftest)**: 33 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
+- **Tự kiểm tra (selftest)**: 35 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
   (panic `index 61`, "không ghép được bài thứ hai", "nút Ghép bị mờ sau khi tải URL", "tải URL mất mục `<li>`"),
-  1 bài **tích hợp LaBSE**, 4 bài **gộp hàng** (bản 2.4), 5 bài **mô hình khối** (bản 2.5) và
+  1 bài **tích hợp LaBSE**, 4 bài **gộp hàng** (bản 2.4), 5 bài **mô hình khối** (bản 2.5),
   **3 bài bộ lọc chrom** (bản 2.6): mega-menu/ribbon/modal/comment theo class (tuoitre.vn),
-  caption/credit ảnh, "link farm" không cần class:
+  caption/credit ảnh, "link farm" không cần class, và **2 bài Excel `.xlsx`** (bản 2.7 — đọc lại file zip kiểm fill màu từng hàng + hàng gộp):
   kéo khối + hoàn tác/làm lại nguyên xi, tách khối + prune hàng rỗng, Rescan (công thức + ngưỡng + từ chối một phía),
   xuất sau khi tráo chéo khối (tha thứ đơn điệu, "mỗi đoạn 1 lần" vẫn gắt), đầu vào xấu của `move_block`.
 
@@ -160,9 +161,9 @@ en-vi-align-rust/
 │   ├── aligner.rs             # bộ ghép: chấm điểm + DP đơn điệu + hoà trộn LaBSE + rescore_pair (bản 2.5)
 │   ├── embedder.rs            # LaBSE: HTTP client + cosine + pipeline /api/align & selftest + pair_cosine (rescan)
 │   ├── session.rs             # phiên: tạo / mở / cập nhật / GỘP HÀNG / TÁCH / move_block / UNDO-REDO / rescan_row / NHẢ PHIÊN
-│   ├── exporter.rs            # xuất TSV / Moses / JSON / CSV / HTML / XLIFF với chữ `none` nguyên văn (hỗ trợ nhiều khối/hàng)
+│   ├── exporter.rs            # xuất TSV / Moses / JSON / CSV / HTML / XLIFF / Excel .xlsx (tô màu ô) với chữ `none` nguyên văn (hỗ trợ nhiều khối/hàng)
 │   ├── fetcher.rs             # tải URL + trích HTML
-│   ├── selftest.rs            # 30 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối)
+│   ├── selftest.rs            # 35 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối + xlsx màu)
 │   ├── lexicon.rs             # từ điển Anh→Việt + danh sách từ phổ biến
 │   └── fold.rs                # bỏ dấu tiếng Việt ("Hà Nội" → "ha noi"), chuẩn hoá số
 └── data/sessions/             # (tạo lúc chạy) nơi lưu các phiên

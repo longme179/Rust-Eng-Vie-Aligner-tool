@@ -150,7 +150,10 @@ Copy duy nhất file binary đó sang máy khác là chạy được — **khôn
    - 🟡 **Cần soát** — nên đọc lại, nhấn ✓ nếu đúng.
    - ⚪ **Không khớp** — một phía không có đối tác, khi xuất sẽ ghi chữ `none`.
 4. Sửa tay nếu cần: mỗi hàng có nút ✓ (xác nhận), ⚠ (cần soát), ✕ (bỏ ghép — tách thành các hàng `none`).
-5. Chọn định dạng rồi bấm **⬇ Xuất file**.
+5. Chọn định dạng rồi bấm **⬇ Xuất file**. Chọn **Excel (.xlsx)** để file tự tô màu từng hàng:
+   xanh nhạt = khớp (tự khớp + đã xác nhận), vàng nhạt = cần soát/khớp một phần, hồng nhạt = không khớp —
+   kèm cột Điểm (%) và Trạng thái, đóng băng dòng đầu, autofilter, chú giải màu dưới bảng.
+   *(CSV/TSV là văn bản thuần nên không mang màu được — muốn màu trong Excel thì chọn .xlsx.)*
 
 ### KÉO–THẢ KHỐI (bản 2.5 — cách sửa nhanh cấu trúc)
 

@@ -17,6 +17,11 @@
 //! BẢN 2.5 — phiên đã kéo–thả ĐỔI THỨ TỰ khối (cờ `reordered`): bỏ kiểm đơn điệu I3
 //! khi xuất (người dùng sắp xếp lại CÓ CHỦ ĐÍCH) — I1/I2/I4/I5 và quy ước `none`
 //! vẫn kiểm gắt như cũ. Thứ tự xuất = thứ tự khối hiển thị trên giao diện.
+//!
+//! BẢN 2.7 — thêm định dạng Excel THẬT (.xlsx): tự tô màu ô theo trạng thái hàng
+//! (xanh nhạt = khớp / đã xác nhận · vàng nhạt = cần soát / khớp một phần ·
+//! hồng nhạt = không khớp), kèm đóng băng dòng đầu, autofilter, chú giải màu.
+//! CSV/TSV là văn bản thuần không thể mang màu — muốn màu trong Excel thì dùng .xlsx.
 
 use crate::aligner::{validate_invariants_opts, AlignOutput, Row, Status};
 use crate::session::Session;
@@ -29,6 +34,8 @@ pub enum ExportFormat {
     Csv,
     Html,
     Xliff,
+    /// BẢN 2.7 — Excel thật (.xlsx) tô màu ô theo trạng thái hàng.
+    Xlsx,
 }
 
 impl ExportFormat {
@@ -40,6 +47,7 @@ impl ExportFormat {
             "csv" => Some(ExportFormat::Csv),
             "html" | "htm" => Some(ExportFormat::Html),
             "xliff" | "xlf" => Some(ExportFormat::Xliff),
+            "xlsx" | "excel" => Some(ExportFormat::Xlsx),
             _ => None,
         }
     }
@@ -52,6 +60,7 @@ impl ExportFormat {
             ExportFormat::Csv => "csv",
             ExportFormat::Html => "html",
             ExportFormat::Xliff => "xlf",
+            ExportFormat::Xlsx => "xlsx",
         }
     }
 
@@ -63,7 +72,13 @@ impl ExportFormat {
             ExportFormat::Csv => "text/csv; charset=utf-8",
             ExportFormat::Html => "text/html; charset=utf-8",
             ExportFormat::Xliff => "application/x-xliff+xml; charset=utf-8",
+            ExportFormat::Xlsx => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }
+    }
+
+    /// Định dạng nhị phân (chỉ xlsx)? — dùng để chọn đường trả bytes.
+    pub fn is_binary(&self) -> bool {
+        matches!(self, ExportFormat::Xlsx)
     }
 }
 
@@ -177,7 +192,10 @@ fn status_color_key(st: &Status) -> &'static str {
 }
 
 pub struct ExportResult {
+    /// Nội dung văn bản (rỗng với định dạng nhị phân — dùng `bytes`).
     pub content: String,
+    /// Nội dung nhị phân (.xlsx) — None với mọi định dạng văn bản.
+    pub bytes: Option<Vec<u8>>,
     pub filename: String,
     pub mime: String,
     pub rows: usize,
@@ -200,6 +218,7 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
 
     let mut none_count = 0usize;
     let mut body = String::new();
+    let mut bytes: Option<Vec<u8>> = None;
 
     match format {
         ExportFormat::Tsv => {
@@ -460,12 +479,108 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
             body.push_str(" </file>\n");
             body.push_str("</xliff>\n");
         }
+        ExportFormat::Xlsx => {
+            // BẢN 2.7 — Excel THẬT (.xlsx) tự tô màu ô theo trạng thái hàng:
+            //   xanh nhạt  E2EFDA = khớp (tự khớp + đã xác nhận)
+            //   vàng nhạt  FFF2CC = cần soát / khớp một phần
+            //   hồng nhạt  FADCE3 = không khớp
+            // Hàng gộp: các đoạn nằm chung một ô, mỗi đoạn một dòng (wrap text).
+            // Quy ước `none` giữ nguyên từng chữ trong ô phía thiếu.
+            use rust_xlsxwriter::{Format, FormatAlign};
+
+            const HDR_BG: u32 = 0xDCEEE8;
+            const GREEN: u32 = 0xE2EFDA;
+            const YELLOW: u32 = 0xFFF2CC;
+            const PINK: u32 = 0xFADCE3;
+
+            // u32 tự chuyển thành Color::RGB qua From<u32> (rust_xlsxwriter 0.99)
+            let fill = |rgb: u32| Format::new().set_background_color(rgb);
+            // ô dữ liệu: nền màu + tự xuống dòng + ép lên đỉnh ô (hàng gộp nhiều đoạn)
+            let cell = |rgb: u32| {
+                fill(rgb)
+                    .set_text_wrap()
+                    .set_align(FormatAlign::Top)
+            };
+            // ô điểm: nền màu + định dạng phần trăm (0.722 → 72%)
+            let pct = |rgb: u32| cell(rgb).set_num_format("0%");
+
+            let hdr = fill(HDR_BG)
+                .set_bold()
+                .set_font_color(0x0F766E);
+            let note = Format::new()
+                .set_italic()
+                .set_font_color(0x6B7280);
+
+            let xerr = |e: rust_xlsxwriter::XlsxError| format!("Lỗi tạo xlsx: {}", e);
+
+            let mut wb = rust_xlsxwriter::Workbook::new();
+            let ws = wb.add_worksheet();
+            ws.set_name("Ghép Anh-Việt").map_err(xerr)?;
+
+            for (c, h) in ["STT", "Tiếng Anh", "Tiếng Việt", "Điểm", "Trạng thái"]
+                .iter()
+                .enumerate()
+            {
+                ws.write_with_format(0, c as u16, *h, &hdr).map_err(xerr)?;
+            }
+            for (c, w) in [(0u16, 6u16), (1, 55), (2, 55), (3, 9), (4, 15)] {
+                ws.set_column_width(c, w).map_err(xerr)?;
+            }
+            // đóng băng dòng đầu (header luôn hiện khi cuộn)
+            ws.set_freeze_panes(1, 0).map_err(xerr)?;
+
+            for (i, r) in session.rows.iter().enumerate() {
+                let er = (i + 1) as u32; // hàng Excel 0-based; 0 = header
+                let (en, vi, none) = row_cells_sep(r, "\n");
+                none_count += none;
+                let (base, score_fmt) = match r.status {
+                    Status::AutoMatched | Status::HumanConfirmed => (cell(GREEN), pct(GREEN)),
+                    Status::NeedsReview => (cell(YELLOW), pct(YELLOW)),
+                    Status::Unmatched => (cell(PINK), pct(PINK)),
+                };
+                ws.write_with_format(er, 0, (r.index + 1) as u32, &base).map_err(xerr)?;
+                ws.write_with_format(er, 1, en.as_str(), &base).map_err(xerr)?;
+                ws.write_with_format(er, 2, vi.as_str(), &base).map_err(xerr)?;
+                match r.score {
+                    Some(s) => {
+                        ws.write_with_format(er, 3, s, &score_fmt).map_err(xerr)?;
+                    }
+                    None => {
+                        // ô rỗng nhưng vẫn mang nền màu để cả hàng đồng nhất
+                        ws.write_with_format(er, 3, "", &base).map_err(xerr)?;
+                    }
+                }
+                ws.write_with_format(er, 4, status_label_vi(&r.status), &base)
+                    .map_err(xerr)?;
+            }
+            // autofilter trên header — lọc theo Trạng thái ngay trong Excel
+            if !session.rows.is_empty() {
+                ws.autofilter(0, 0, session.rows.len() as u32, 4)
+                    .map_err(xerr)?;
+            }
+            // chú giải màu dưới bảng: ô A tô màu, ô B giải thích
+            let lg = session.rows.len() as u32 + 3;
+            let legend: [(u32, &str); 3] = [
+                (GREEN, "Khớp / khớp phần lớn — tự khớp + đã xác nhận"),
+                (YELLOW, "Cần soát / khớp một phần"),
+                (PINK, "Không khớp hoàn toàn"),
+            ];
+            for (k, (rgb, label)) in legend.iter().enumerate() {
+                ws.write_with_format(lg + k as u32, 0, "", &fill(*rgb))
+                    .map_err(xerr)?;
+                ws.write_with_format(lg + k as u32, 1, *label, &note)
+                    .map_err(xerr)?;
+            }
+
+            bytes = Some(wb.save_to_buffer().map_err(xerr)?);
+        }
     }
 
     Ok(ExportResult {
         filename: format!("reva-tool-{}.{}", session.id, format.ext()),
         mime: format.mime().to_string(),
         content: body,
+        bytes,
         rows: session.rows.len(),
         none_count,
     })

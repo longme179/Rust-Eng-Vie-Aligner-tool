@@ -499,6 +499,7 @@
       <button class="btn" id="btnRedo" disabled title="Làm lại thao tác vừa hoàn tác — Ctrl+Shift+Z">↪ <span class="lbl">Làm lại</span></button>
       <label for="fmtSelect" style="font-size:13px;color:var(--muted)">Định dạng:</label>
       <select id="fmtSelect" aria-label="Định dạng xuất">
+        <option value="xlsx">Excel (.xlsx) — tô màu theo trạng thái</option>
         <option value="tsv">TSV — hai cột ngăn tab</option>
         <option value="moses">Moses — “văn bản ||| văn bản”</option>
         <option value="json">JSON — đầy đủ trạng thái</option>
@@ -520,7 +521,7 @@
         <li>Nhấn <b>⚡ Ghép đoạn</b> (hoặc <b>Ctrl+Enter</b>).</li>
         <li>Sau khi ghép, <b>mỗi đoạn là một khối 🧩</b>: kéo khối sang ô cùng ngôn ngữ của hàng khác (ví dụ kéo D1, E1 lên chung sau C1), đổi thứ tự tuỳ ý, thả vào thân hàng (hoặc bấm ⇥) để tách riêng.</li>
         <li>Kéo xong bấm <b>↻ Rescan LaBSE</b> trên từng hàng để chấm lại độ khớp; kéo nhầm thì <b>Ctrl+Z</b> hoàn tác ngay.</li>
-        <li>Nhấn <b>⬇ Xuất file</b> — đoạn thiếu một phía sẽ ghi đúng chữ <code style="font-family:var(--mono)">none</code>.</li>
+        <li>Nhấn <b>⬇ Xuất file</b> — đoạn thiếu một phía sẽ ghi đúng chữ <code style="font-family:var(--mono)">none</code>. Chọn <b>Excel (.xlsx)</b> để file tự tô màu từng hàng: <span style="background:#e2efda;padding:0 6px;border-radius:4px">xanh = khớp</span>, <span style="background:#fff2cc;padding:0 6px;border-radius:4px">vàng = cần soát</span>, <span style="background:#fadce3;padding:0 6px;border-radius:4px">hồng = không khớp</span> (CSV/TSV là văn bản thuần nên không mang màu được).</li>
       </ol>
     </div>
   </section>
@@ -1217,11 +1218,11 @@ async function doExport(){
     }
     const rows = res.headers.get("x-rows") || "?";
     const noneN = res.headers.get("x-none-count") || "0";
-    const text = await res.text();
+    // blob() giữ nguyên bytes — đúng cho xlsx (nhị phân) lẫn định dạng văn bản
+    const blob = await res.blob();
     const cd = res.headers.get("content-disposition") || "";
     const m = /filename="([^"]+)"/.exec(cd);
     const name = m ? m[1] : `reva-tool-${cur.id}.txt`;
-    const blob = new Blob([text], { type: res.headers.get("content-type") || "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = name;

@@ -14,12 +14,15 @@
 //! Bản 2.5 thêm 5 bài MÔ HÌNH KHỐI: di chuyển khối + hoàn tác/làm lại,
 //! tách khối thành hàng riêng (prune hàng rỗng), Rescan chấm lại điểm (LaBSE giả lập),
 //! xuất sau khi đổi thứ tự (tha thứ I3, I1 vẫn gắt), và bộ lỗi đầu vào của move_block.
+//! Bản 2.7 thêm 2 bài Excel (.xlsx): tô màu ô theo trạng thái hàng + hàng gộp —
+//! đọc lại file zip thật (styles/sheet/sharedStrings) kiểm chứng fill từng hàng.
 
 use crate::aligner::{self, AlignOptions, Row, Status};
 use crate::exporter::{export_session, ExportFormat};
 use crate::fetcher;
 use crate::session::{derive_title, generate_id, Session, SessionStore, Side};
 use serde::Serialize;
+use std::io::Read;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Serialize)]
@@ -1830,6 +1833,336 @@ fn t_link_farm_extract() -> Result<(), String> {
     Ok(())
 }
 
+// ========================= Đọc kiểm file .xlsx (BẢN 2.7) =========================
+
+/// Đọc một entry text từ file zip .xlsx.
+fn zip_read(bytes: &[u8], name: &str) -> Result<String, String> {
+    let mut za = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|e| format!("mở zip xlsx: {}", e))?;
+    let mut s = String::new();
+    za.by_name(name)
+        .map_err(|e| format!("zip thiếu {}: {}", name, e))?
+        .read_to_string(&mut s)
+        .map_err(|e| format!("đọc {}: {}", name, e))?;
+    Ok(s)
+}
+
+/// Đoạn giữa 2 dấu hiệu (lần đầu tiên tìm được).
+fn between<'a>(s: &'a str, open: &str, close: &str) -> Option<&'a str> {
+    let i = s.find(open)? + open.len();
+    let j = s[i..].find(close)? + i;
+    Some(&s[i..j])
+}
+
+/// Danh sách màu fill (rgb) theo thứ tự <fill> trong styles.xml — chỉ số = fillId.
+fn xlsx_fill_colors(styles: &str) -> Vec<String> {
+    let block = between(styles, "<fills", "</fills>").unwrap_or("");
+    block
+        .split("<fill>")
+        .skip(1)
+        .map(|f| match f.find("rgb=\"") {
+            Some(i) => {
+                let rest = &f[i + 5..];
+                let end = rest.find('"').unwrap_or(rest.len());
+                rest[..end].to_string()
+            }
+            None => String::new(),
+        })
+        .collect()
+}
+
+/// fillId của từng <xf> trong <cellXfs> — chỉ số xf chính là s= của ô.
+fn xlsx_xf_fill_ids(styles: &str) -> Vec<usize> {
+    let block = between(styles, "<cellXfs", "</cellXfs>").unwrap_or("");
+    block
+        .split("<xf ")
+        .skip(1)
+        .map(|xf| match xf.find("fillId=\"") {
+            Some(i) => {
+                let rest = &xf[i + 8..];
+                let end = rest.find('"').unwrap_or(rest.len());
+                rest[..end].parse().unwrap_or(usize::MAX)
+            }
+            None => usize::MAX,
+        })
+        .collect()
+}
+
+/// Màu nền của ô A{row} (row 1-based như sheet) qua s= → xf → fillId → rgb.
+fn xlsx_row_fill(sheet: &str, fills: &[String], xfs: &[usize], row: u32) -> Result<String, String> {
+    let row_marker = format!("<row r=\"{}\"", row);
+    let i = sheet
+        .find(&row_marker)
+        .ok_or_else(|| format!("sheet thiếu hàng {}", row))?;
+    let rest = &sheet[i..];
+    let end = rest.find("</row>").unwrap_or(rest.len());
+    let chunk = &rest[..end];
+    let cell_marker = format!("<c r=\"A{}\"", row);
+    let ci = chunk
+        .find(&cell_marker)
+        .ok_or_else(|| format!("hàng {} thiếu ô A mang style", row))?;
+    let zone = &chunk[ci..(ci + 120).min(chunk.len())];
+    let si = zone
+        .find("s=\"")
+        .ok_or_else(|| format!("ô A{} không mang style s=", row))?;
+    let after = &zone[si + 3..];
+    let endq = after.find('"').unwrap_or(after.len());
+    let s: usize = after[..endq]
+        .parse()
+        .map_err(|_| format!("s= của ô A{} không phải số", row))?;
+    let fid = *xfs
+        .get(s)
+        .ok_or_else(|| format!("style s={} vượt cellXfs", s))?;
+    Ok(fills.get(fid).cloned().unwrap_or_default())
+}
+
+/// 34. [BẢN 2.7] Excel (.xlsx): tự tô màu ô theo trạng thái hàng — đọc lại file zip
+/// (styles.xml + sheet1.xml + sharedStrings.xml) kiểm chứng fill ĐÚNG TỪNG HÀNG:
+/// xanh nhạt E2EFDA = tự khớp + đã xác nhận · vàng nhạt FFF2CC = cần soát ·
+/// hồng nhạt FADCE3 = không khớp; kèm header màu, đóng băng dòng đầu, autofilter,
+/// chú giải màu dưới bảng và `none` nguyên văn trong ô phía thiếu.
+fn t_export_xlsx_colors() -> Result<(), String> {
+    let en0 = "Hanoi hosted the summit in 2025, drawing 4,000 guests.";
+    let en1 = "An English only paragraph goes here without any translation.";
+    let en2 = "The final matched pair carries a yellow review flag.";
+    let vi0 = "Hà Nội tổ chức hội nghị năm 2025, thu hút 4.000 khách.";
+    let vi1 = "Đây là đoạn tiếng Việt thừa, không có bản tiếng Anh tương ứng.";
+    let vi2 = "Cặp cuối cùng mang cờ cần soát màu vàng.";
+
+    let rows = vec![
+        Row {
+            index: 0,
+            en_index: Some(0),
+            vi_index: Some(0),
+            en: Some(en0.into()),
+            vi: Some(vi0.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::AutoMatched,
+            score: Some(0.85),
+        },
+        Row {
+            index: 1,
+            en_index: Some(1),
+            vi_index: None,
+            en: Some(en1.into()),
+            vi: None,
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::Unmatched,
+            score: None,
+        },
+        Row {
+            index: 2,
+            en_index: None,
+            vi_index: Some(1),
+            en: None,
+            vi: Some(vi1.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::HumanConfirmed,
+            score: None,
+        },
+        Row {
+            index: 3,
+            en_index: Some(2),
+            vi_index: Some(2),
+            en: Some(en2.into()),
+            vi: Some(vi2.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::NeedsReview,
+            score: Some(0.42),
+        },
+    ];
+    let session = Session {
+        id: "test-xlsx27".into(),
+        title: "Excel màu 2.7".into(),
+        created_at: 1,
+        updated_at: 1,
+        english: vec![en0.into(), en1.into(), en2.into()],
+        vietnamese: vec![vi0.into(), vi1.into(), vi2.into()],
+        rows,
+        options: AlignOptions { auto_threshold: 0.30 },
+        engine: "lexical".into(),
+        reordered: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+    };
+
+    let r = export_session(&session, ExportFormat::Xlsx)?;
+    let bytes = r
+        .bytes
+        .as_ref()
+        .ok_or("xlsx phải trả về bytes (không phải content)")?;
+    if !r.content.is_empty() {
+        return Err("xlsx phải để content rỗng".into());
+    }
+    if !bytes.starts_with(b"PK\x03\x04") {
+        return Err("xlsx phải là file zip (magic PK)".into());
+    }
+    if !r.filename.ends_with(".xlsx") {
+        return Err(format!("tên file phải .xlsx, được {}", r.filename));
+    }
+    if !r.mime.contains("spreadsheetml") {
+        return Err(format!("mime sai: {}", r.mime));
+    }
+    if r.rows != 4 || r.none_count != 2 {
+        return Err(format!("rows/none phải 4/2, được {}/{}", r.rows, r.none_count));
+    }
+
+    let styles = zip_read(bytes, "xl/styles.xml")?;
+    let sheet = zip_read(bytes, "xl/worksheets/sheet1.xml")?;
+    let shared = zip_read(bytes, "xl/sharedStrings.xml")?;
+
+    // 4 màu phải có mặt trong styles: header + 3 màu trạng thái
+    for c in ["FFDCEEE8", "FFE2EFDA", "FFFFF2CC", "FFFADCE3"] {
+        if !styles.contains(c) {
+            return Err(format!("styles.xml thiếu màu {}", c));
+        }
+    }
+
+    // mỗi hàng Excel (1-based) phải mang đúng màu nền qua ô A
+    let fills = xlsx_fill_colors(&styles);
+    let xfs = xlsx_xf_fill_ids(&styles);
+    let expect: [(u32, &str); 8] = [
+        (1, "FFDCEEE8"), // header
+        (2, "FFE2EFDA"), // tự khớp
+        (3, "FFFADCE3"), // không khớp (chỉ EN)
+        (4, "FFE2EFDA"), // đã xác nhận (chỉ VI)
+        (5, "FFFFF2CC"), // cần soát
+        (8, "FFE2EFDA"), // chú giải: xanh (0-based 7 → r=8)
+        (9, "FFFFF2CC"), // chú giải: vàng
+        (10, "FFFADCE3"), // chú giải: hồng
+    ];
+    for (row_no, rgb) in expect {
+        let got = xlsx_row_fill(&sheet, &fills, &xfs, row_no)?;
+        if got != rgb {
+            return Err(format!("hàng {} phải nền {}, được {}", row_no, rgb, got));
+        }
+    }
+
+    // văn bản: header, nhãn trạng thái, none nguyên văn, nội dung hàng, chú giải
+    for must in [
+        "STT",
+        "Tiếng Anh",
+        "Tiếng Việt",
+        "Điểm",
+        "Trạng thái",
+        "Tự khớp",
+        "Cần soát",
+        "Không khớp",
+        "Đã xác nhận",
+        "<t>none</t>",
+        en0,
+        vi1,
+        en2,
+        "Khớp / khớp phần lớn — tự khớp + đã xác nhận",
+        "Không khớp hoàn toàn",
+    ] {
+        if !shared.contains(must) {
+            return Err(format!("sharedStrings thiếu {:?}", must));
+        }
+    }
+    // autofilter + đóng băng dòng đầu phải có mặt trong sheet
+    if !sheet.contains("<autoFilter") {
+        return Err("sheet thiếu autofilter (lọc theo Trạng thái)".into());
+    }
+    if !sheet.contains("<pane ") {
+        return Err("sheet thiếu đóng băng dòng đầu (freeze panes)".into());
+    }
+    Ok(())
+}
+
+/// 35. [BẢN 2.7] xlsx cho HÀNG GỘP: nhiều đoạn nằm chung một ô (mỗi đoạn một dòng),
+/// alias "excel", meta file (ext/mime/is_binary), màu vẫn đúng sau gộp.
+fn t_export_xlsx_merged() -> Result<(), String> {
+    // alias + meta
+    if ExportFormat::parse("xlsx") != Some(ExportFormat::Xlsx)
+        || ExportFormat::parse("excel") != Some(ExportFormat::Xlsx)
+    {
+        return Err("parse phải nhận 'xlsx' và 'excel'".into());
+    }
+    if ExportFormat::Xlsx.ext() != "xlsx" || !ExportFormat::Xlsx.is_binary() {
+        return Err("ext/is_binary của Xlsx sai".into());
+    }
+    if ExportFormat::Csv.is_binary() || ExportFormat::Tsv.is_binary() {
+        return Err("định dạng văn bản không được là binary".into());
+    }
+
+    let en_a = "First English segment of a merged row in this test.";
+    let en_b = "Second English segment joined by drag and drop.";
+    let vi_a = "Đoạn Việt của hàng đã gộp hai đoạn tiếng Anh.";
+    let vi_b = "Đoạn Việt thừa không có bản tiếng Anh đi kèm.";
+    let rows = vec![
+        Row {
+            index: 0,
+            en_index: Some(0),
+            vi_index: Some(0),
+            en: Some(en_a.into()),
+            vi: Some(vi_a.into()),
+            en_extra: vec![crate::aligner::Seg::new(1, en_b.into())],
+            vi_extra: Vec::new(),
+            status: Status::AutoMatched,
+            score: Some(0.71),
+        },
+        Row {
+            index: 1,
+            en_index: None,
+            vi_index: Some(1),
+            en: None,
+            vi: Some(vi_b.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::Unmatched,
+            score: None,
+        },
+    ];
+    let session = Session {
+        id: "test-xlsx27b".into(),
+        title: "xlsx hàng gộp".into(),
+        created_at: 1,
+        updated_at: 1,
+        english: vec![en_a.into(), en_b.into()],
+        vietnamese: vec![vi_a.into(), vi_b.into()],
+        rows,
+        options: AlignOptions { auto_threshold: 0.30 },
+        engine: "lexical".into(),
+        reordered: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+    };
+
+    let r = export_session(&session, ExportFormat::Xlsx)?;
+    let bytes = r.bytes.as_ref().ok_or("xlsx phải trả bytes")?;
+    if r.none_count != 1 || r.rows != 2 {
+        return Err(format!("rows/none phải 2/1, được {}/{}", r.rows, r.none_count));
+    }
+    let styles = zip_read(bytes, "xl/styles.xml")?;
+    let sheet = zip_read(bytes, "xl/worksheets/sheet1.xml")?;
+    let shared = zip_read(bytes, "xl/sharedStrings.xml")?;
+
+    // ô EN của hàng gộp chứa CẢ HAI đoạn, ngăn nhau bằng xuống dòng (raw hoặc &#10;)
+    let joined_raw = format!("{}\n{}", en_a, en_b);
+    let joined_esc = format!("{}&#10;{}", en_a, en_b);
+    if !shared.contains(&joined_raw) && !shared.contains(&joined_esc) {
+        return Err("ô EN của hàng gộp phải chứa cả 2 đoạn (ngăn xuống dòng)".into());
+    }
+    if !shared.contains("<t>none</t>") {
+        return Err("hàng VI-only phải ghi 'none' phía EN".into());
+    }
+    // màu: hàng gộp (tự khớp) = xanh, hàng VI-only (không khớp) = hồng
+    let fills = xlsx_fill_colors(&styles);
+    let xfs = xlsx_xf_fill_ids(&styles);
+    for (row_no, rgb) in [(2u32, "FFE2EFDA"), (3u32, "FFFADCE3")] {
+        let got = xlsx_row_fill(&sheet, &fills, &xfs, row_no)?;
+        if got != rgb {
+            return Err(format!("hàng {} phải nền {}, được {}", row_no, rgb, got));
+        }
+    }
+    Ok(())
+}
+
 /// Chạy toàn bộ bộ kiểm — mỗi bài trong thread riêng (panic = FAIL, không sập tiến trình).
 pub fn run_all() -> Vec<TestResult> {
     let tests: Vec<(&str, fn() -> Result<(), String>)> = vec![
@@ -1866,6 +2199,8 @@ pub fn run_all() -> Vec<TestResult> {
         ("31. [BẢN 2.6][REGRESSION] mega-menu/ribbon/modal/comment theo class — tuoitre.vn", t_mega_menu_extract),
         ("32. [BẢN 2.6] caption/credit ảnh trong figure: bỏ credit ngắn, giữ caption dài", t_caption_credit_extract),
         ("33. [BẢN 2.6] \"link farm\": mật độ link nhận diện menu không cần class", t_link_farm_extract),
+        ("34. [BẢN 2.7] Excel .xlsx: tô màu ô theo trạng thái hàng (đọc lại zip kiểm fill từng hàng)", t_export_xlsx_colors),
+        ("35. [BẢN 2.7] xlsx hàng gộp nhiều đoạn chung một ô + alias excel + meta file", t_export_xlsx_merged),
     ];
 
     let mut results = Vec::with_capacity(tests.len());

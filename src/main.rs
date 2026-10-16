@@ -1,5 +1,8 @@
-//! main.rs — REVA tool (reva-tool) v2.6
+//! main.rs — REVA tool (reva-tool) v2.7
 //! Web server 1-binary: giao diện + API, chạy 100% cục bộ.
+//! Bản 2.7: xuất Excel THẬT (.xlsx) tự tô màu ô theo trạng thái hàng (xanh/vàng/hồng
+//!           nhạt) + đóng băng dòng đầu + autofilter + chú giải màu — CSV/TSV là văn
+//!           bản thuần nên không mang màu được.
 //! Bản 2.6: bộ trích URL 3 tầng lọc chrom (class/id tổ tiên, mật độ link,
 //!           caption/credit ảnh) + flag dòng lệnh `--extract <file.html>` để soi
 //!           nhanh các đoạn sẽ lấy từ 1 file HTML (kiểm tra/hủy trừ khi phát triển).
@@ -539,7 +542,11 @@ async fn api_export(
                         s.id.clone(),
                     ),
                 ],
-                r.content,
+                // xlsx là nhị phân; mọi định dạng khác là văn bản (exporter 2.7)
+                match r.bytes {
+                    Some(b) => b,
+                    None => r.content.into_bytes(),
+                },
             )
                 .into_response()
         }
