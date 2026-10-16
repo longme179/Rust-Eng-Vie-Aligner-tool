@@ -1,9 +1,16 @@
-# HƯỚNG DẪN TRIỂN KHAI — REVA tool v2.5
+# HƯỚNG DẪN TRIỂN KHAI — REVA tool v2.6
 
 > Công cụ ghép & sắp đoạn văn bản Anh–Việt (tiền thân: **Cánh đôi Anh–Việt**), 1 chương trình duy nhất, chạy cục bộ 100%.
 > **Từ v2.2 không còn binary dựng sẵn** — mỗi hệ điều hành có **một file lệnh duy nhất**
 > đem vào terminal là tự build + tự chạy (người dùng tự compile từ mã nguồn, nhờ đó
 > **LaBSE — mấu chốt để ghép chính xác — luôn đầy đủ**).
+>
+> **v2.6 — TẢI URL SẠCH + LABSE KHÔNG TẢI LẠI**: khi tải bài từ URL, các rác giao diện trang báo
+> (ribbon/mega-menu, khối modal/đăng nhập/bình luận, credit ảnh “Ảnh: X…”, tin liên quan) bị loại
+> bằng 3 tầng lọc tổng quát (class/id tổ tiên, “link farm” mật độ link, caption/credit ảnh).
+> Model LaBSE được lưu trong **`labse/model/`** — tải đúng **1 lần duy nhất**; cập nhật mã nguồn/build lại
+> **không bao giờ tải lại** (script cũng không nâng cấp PyTorch khi đã cài). Soi nhanh bộ trích bằng
+> `./target/release/reva-tool --extract file.html`.
 >
 > **v2.5 — MÔ HÌNH KHỐI**: sau khi ghép, **mỗi đoạn văn là một khối 🧩** co giãn theo độ lớn chữ.
 > Kéo khối vào ô cùng ngôn ngữ của HÀNG BẤT KỲ (ví dụ kéo D1, E1 lên chung sau C1), **đổi thứ tự tuỳ ý**,
@@ -56,11 +63,17 @@ và huy hiệu trên đầu trang là **“Từ vựng + LaBSE — chính xác c
 
 ### Chạy lại lần sau
 
-Chạy lại đúng file lệnh đó — gần như tức thì (build tăng dần, Python/model đã có sẵn).
+Chạy lại đúng file lệnh đó — gần như tức thì: build tăng dần, Python đã có thì **không cài lại**
+(không nâng cấp → không kéo PyTorch mới), và model LaBSE nằm sẵn trong **`labse/model/`** nên
+**không bao giờ tải lại** — kể cả khi bạn cập nhật mã nguồn hoặc xoá cache HuggingFace.
 Muốn KHÔNG dùng LaBSE (máy yếu, không muốn cài Python): chạy thẳng binary
 `target/release/reva-tool` — app vẫn hoạt động, huy hiệu báo
 “Chỉ từ vựng — chưa bật LaBSE” (chấm hổ phách) và ghép bằng bộ từ vựng
 (nút **Rescan** cũng vẫn chấm được bằng từ vựng).
+
+> Mẹo kiểm tra bộ trích văn bản (bản 2.6): lưu trang web thành file `.html` rồi chạy
+> `./target/release/reva-tool --extract trang.html` — in ra đúng các đoạn công cụ sẽ lấy,
+> không cần mở app hay mạng.
 
 ### Yêu cầu máy
 
@@ -176,11 +189,12 @@ Sau khi ghép, **mỗi đoạn là một khối** (nhãn `EN·n` / `VI·n` = s�
 
 ### Tự kiểm tra
 
-Nút **🧪 Tự kiểm tra** chạy 30 bài kiểm nội bộ (không cần mạng). Bốn bài `[REGRESSION]` chính là
+Nút **🧪 Tự kiểm tra** chạy 33 bài kiểm nội bộ (không cần mạng). Bốn bài `[REGRESSION]` chính là
 4 lỗi từng gặp ở các bản trước (panic `index 61`, “không ghép được bài thứ hai”, “tải 2 bài từ URL
 xong nút Ghép bị mờ”, “tải URL mất mục danh sách”); bài `[TÍCH HỢP]` kiểm toàn bộ đường ống LaBSE bằng
-dịch vụ nhúng giả lập (không cần tải model); 4 bài gộp hàng (bản 2.4) và 5 bài mô hình khối (bản 2.5:
-kéo khối + hoàn tác/làm lại, tách khối, Rescan, xuất sau đổi thứ tự, đầu vào xấu). Nếu cả 30 bài xanh
+dịch vụ nhúng giả lập (không cần tải model); 4 bài gộp hàng (bản 2.4), 5 bài mô hình khối (bản 2.5:
+kéo khối + hoàn tác/làm lại, tách khối, Rescan, xuất sau đổi thứ tự, đầu vào xấu) và **3 bài bộ lọc
+chrom** (bản 2.6: mega-menu/ribbon/modal theo class, caption/credit ảnh, “link farm”). Nếu cả 33 bài xanh
 thì máy bạn đang chạy đúng bản đã sửa.
 
 ---

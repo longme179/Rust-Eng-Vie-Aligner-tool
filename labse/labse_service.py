@@ -3,14 +3,19 @@
 """labse_service.py — dịch vụ nhúng câu LaBSE cục bộ cho REVA tool (tiền thân: Cánh đôi Anh–Việt).
 
 Chạy 100% trên máy bạn (không gửi văn bản đi đâu):
-  * Nạp model LaBSE (sentence-transformers/LaBSE, ~1.8 GB, tải 1 lần rồi cache).
+  * Nạp model LaBSE (sentence-transformers/LaBSE, ~1.8 GB).
+  * Từ bản 2.6: ưu tiên nạp từ thư mục cục bộ `labse/model/` (do
+    download_model.py tạo ra) ở CHẾ ĐỘ OFFLINE — không chạm mạng, không phụ
+    thuộc cache HuggingFace, build lại mã nguồn không bao giờ tải lại model.
+    Chưa có thư mục đó thì fallback về hub (có cache HF thì cũng nhanh).
   * Lắng nghe tại 127.0.0.1:3031 (chỉ máy này kết nối được).
   * GET  /health              -> {"status":"ok","model":"LaBSE","dim":768}
   * POST /embed {"texts":[..]} -> {"embeddings":[[...], ...]}  (đã chuẩn hoá L2)
 
 Biến môi trường:
-  LABSE_PORT  — cổng (mặc định 3031)
-  LABSE_MODEL — tên model (mặc định sentence-transformers/LaBSE)
+  LABSE_PORT           — cổng (mặc định 3031)
+  LABSE_MODEL          — tên model khi nạp từ hub (mặc định sentence-transformers/LaBSE)
+  REVA_LABSE_MODEL_DIR — thư mục model cục bộ (mặc định <script>/model)
 
 App Rust tự động nhận diện service này (huy hiệu đổi thành
 "Từ vựng + LaBSE — chính xác cao"). Không có service thì app vẫn chạy
@@ -24,6 +29,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(os.environ.get("LABSE_PORT", "3031"))
 MODEL_NAME = os.environ.get("LABSE_MODEL", "sentence-transformers/LaBSE")
+HERE = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.environ.get("REVA_LABSE_MODEL_DIR", os.path.join(HERE, "model"))
 BATCH = 32          # số câu mỗi lô suy luận (đỡ RAM/CPU)
 MAX_TEXTS = 4096    # số đoạn tối đa mỗi request
 
@@ -104,10 +111,37 @@ class Handler(BaseHTTPRequestHandler):
         pass  # đã tự log ở handler
 
 
+def _load_model():
+    """Nạp model: ưu tiên thư mục cục bộ (offline), fallback về hub."""
+    def _ok_dir(d):
+        if not os.path.isdir(d) or not os.path.isfile(os.path.join(d, "config.json")):
+            return False
+        return any(
+            os.path.isfile(os.path.join(d, w))
+            for w in ("model.safetensors", "pytorch_model.bin")
+        )
+
+    if _ok_dir(MODEL_DIR):
+        # TẮT hẳn mọi truy cập mạng — nạp 100% từ đĩa, không bao giờ tải lại.
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+        print("[labse] nạp model từ THƯ MỤC CỤC BỘ %s (offline — không cần mạng)…" % MODEL_DIR, flush=True)
+        try:
+            return SentenceTransformer(MODEL_DIR, local_files_only=True)
+        except TypeError:
+            # sentence-transformers cũ không có tham số local_files_only
+            return SentenceTransformer(MODEL_DIR)
+    print(
+        "[labse] chưa có %s — nạp từ hub %s (chạy labse/download_model.py "
+        "để lưu về máy, các lần sau không phải tải lại)…" % (MODEL_DIR, MODEL_NAME),
+        flush=True,
+    )
+    return SentenceTransformer(MODEL_NAME)
+
+
 def main():
     global _model, _dim
-    print("[labse] đang nạp model %s …" % MODEL_NAME, flush=True)
-    _model = SentenceTransformer(MODEL_NAME)
+    _model = _load_model()
     _dim = _model_dim(_model)
     print("[labse] LaBSE sẵn sàng — vector %d chiều" % _dim, flush=True)
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)

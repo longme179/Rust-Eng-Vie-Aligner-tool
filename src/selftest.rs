@@ -1687,6 +1687,150 @@ fn t_move_invalid() -> Result<(), String> {
 
 /// Chạy toàn bộ bộ kiểm. Mỗi bài chạy trong thread riêng để panic (nếu có)
 /// không làm sập cả tiến trình — panics được coi là FAIL có thông báo.
+// ========================= [BẢN 2.6] bộ lọc chrom 3 tầng khi tải URL =========================
+
+/// 31. [BẢN 2.6][REGRESSION] ribbon/mega-menu/modal/comment của báo gốc (tuoitre.vn)
+/// không dùng thẻ <nav> mà dùng div/ul mang class — bản ≤2.5 hớt 11 khối menu +
+/// 26 khối popup/form vào văn bản. Mô phỏng đúng cấu trúc thật đã sao chụp từ trang.
+fn t_mega_menu_extract() -> Result<(), String> {
+    let html = r##"<html><head><title>Báo gốc — bài viết mẫu</title></head><body>
+<div class="wapper"><div class="popup-megamenu"><div class="container"><div class="mg_body">
+<div class="mg_bodyleft"><ul class="list_all_menu_main">
+<li><a href="/video.htm" class="name_menu_main">Video</a>
+<ul class="ribbon-col"><li><a href="/tin-moi-nhat.htm" class="nav-link">Mới nhất</a></li>
+<li><a href="/tin-nong.htm" class="nav-link">Tin nóng</a></li>
+<li class="moremenu"><span>Xem thêm...</span></li></ul></li>
+<li><a href="/the-gioi.htm" class="name_menu_main">Thế giới</a>
+<ul class="sub_all_menu_main"><li data-zoneid="94"><a href="/binh-luan.htm">Bình luận</a></li>
+<li data-zoneid="312"><a href="/kieu-bao.htm">Kiều bào</a></li>
+<li class="moremenu"><span>Xem thêm...</span></li></ul></li>
+</ul></div>
+<div class="mg_bodyright"><ul class="mg_r_menu"><li><a href="/bau-cu.htm">Bầu cử Mỹ 2024</a></li></ul></div>
+</div></div></div></div>
+<article>
+<p class="detail-sapo" data-role="sapo">Tối 16-10, Thủ tướng Lê Minh Hưng dự và phát biểu tại lễ công bố sản phẩm đạt Thương hiệu quốc gia Việt Nam lần thứ 10 năm 2026.</p>
+<div class="detail-content afcbc-body">
+<figure class="VCSortableInPreviewMode" type="Photo"><div><img src="x.jpeg" alt=""/></div>
+<figcaption class="PhotoCMS_Caption"><p>Thủ tướng Lê Minh Hưng - Ảnh: C.DŨNG</p></figcaption></figure>
+<p>Qua hơn hai thập kỷ, chương trình đã xây dựng thương hiệu dựa trên ba giá trị cốt lõi, góp phần nâng cao năng lực cạnh tranh của doanh nghiệp Việt Nam.</p>
+<figure class="VCSortableInPreviewMode" type="Photo"><div><img src="y.jpeg" alt=""/></div>
+<figcaption><p>Thương hiệu quốc gia Việt Nam năm 2026 đã tăng lên trên 462 tỉ USD, tăng 45,14% so với năm 2020 và xếp thứ 32 trong số 193 quốc gia được xếp hạng về giá trị thương hiệu.</p></figcaption></figure>
+<div class="VCSortableInPreviewMode alignCenter"><div><p>227 doanh nghiệp được công nhận năm nay sở hữu gần 5.700 nhãn hiệu, sáng chế, giải pháp hữu ích và hơn 2.400 chứng chỉ, tiêu chuẩn quốc tế.</p></div></div>
+<p class="VCObjectBoxRelatedNewsItemSapo">Chiều 29-9, Bộ Công Thương tổ chức họp báo giới thiệu và cung cấp thông tin về lễ công bố sản phẩm đạt Thương hiệu quốc gia Việt Nam.</p>
+</div></article>
+<div class="modal__payment loginssopop"><div class="modal__content"><div class="middle">
+<div class="form-group"><p class="warning">Thông tin đăng nhập không đúng.</p></div>
+<p>Có lỗi phát sinh. Vui lòng thử lại sau.</p></div></div></div>
+<div class="detail-comment"><section class="comment-wrapper clearfix"><div class="comment_list">
+<p class="text-no-comment">Hiện chưa có bình luận nào, hãy là người đầu tiên bình luận</p></div></section></div>
+<div class="detail__newslette"><div class="flex"><div class="left">
+<p class="des">Tuổi Trẻ Online sẽ gởi đến bạn những tin tức nổi bật nhất trong ngày.</p></div></div></div>
+<div class="modal_introduce"><div class="popup"><div class="content"><p><b>Thêm chuyên mục, tăng trải nghiệm</b></p>
+<p>Từ ngày 1-1-2023, chúng tôi giới thiệu phiên bản đặc biệt dành riêng cho các thành viên với nhiều ưu đãi hấp dẫn hơn.</p></div></div></div>
+</body></html>"##;
+    let (_title, paras) = fetcher::extract(html);
+    let expected: [&str; 4] = [
+        "Tối 16-10, Thủ tướng Lê Minh Hưng dự và phát biểu",
+        "Qua hơn hai thập kỷ, chương trình đã xây dựng thương hiệu",
+        // caption DÀI (≥100 ký tự, không credit) trong figcaption vẫn được GIỮ
+        "Thương hiệu quốc gia Việt Nam năm 2026 đã tăng lên trên 462 tỉ USD",
+        "227 doanh nghiệp được công nhận năm nay sở hữu gần 5.700 nhãn hiệu",
+    ];
+    if paras.len() != expected.len() {
+        return Err(format!(
+            "kỳ vọng {} đoạn (chỉ nội dung bài), được {}: {:#?}",
+            expected.len(),
+            paras.len(),
+            paras
+        ));
+    }
+    for (i, (got, want)) in paras.iter().zip(expected.iter()).enumerate() {
+        if !got.contains(want) {
+            return Err(format!("đoạn {} phải chứa {:?}, được {:?}", i + 1, want, got));
+        }
+    }
+    // mọi khối rác phải bị BỎ toàn bộ
+    for must_drop in [
+        "Mới nhất", "Bình luận", "Bầu cử Mỹ 2024", "Xem thêm",
+        "Ảnh: C.DŨNG", "Thông tin đăng nhập không đúng",
+        "Hiện chưa có bình luận", "Tuổi Trẻ Online sẽ gởi",
+        "Thêm chuyên mục", "Chiều 29-9, Bộ Công Thương",
+    ] {
+        if paras.iter().any(|p| p.contains(must_drop)) {
+            return Err(format!("chrom '{}' phải bị lượt bỏ khi tải URL", must_drop));
+        }
+    }
+    Ok(())
+}
+
+/// 32. [BẢN 2.6] caption/credit ảnh: credit ngắn bị bỏ, caption dài được giữ,
+/// quy tắc credit KHÔNG áp ngoài <figure> (đoạn thật nhắc "Ảnh:" vẫn giữ).
+fn t_caption_credit_extract() -> Result<(), String> {
+    let html = r##"<html><head><title>Caption test</title></head><body><article>
+<figure><img src="a.jpg" alt=""/><figcaption><p>Chú thích ảnh ngắn.</p></figcaption></figure>
+<figure><img src="b.jpg" alt=""/><figcaption><p>Ảnh: TRẦN VĂN A</p></figcaption></figure>
+<figure><img src="c.jpg" alt=""/><figcaption><p>Nguồn: Reuters — tổng hợp dữ liệu thị trường trong quý.</p></figcaption></figure>
+<figure><figcaption><p>Đây là một chú thích dài và có ý nghĩa giải thích cho bức ảnh, được viết thành câu văn trọn vẹn với nhiều thông tin ngữ cảnh quan trọng của sự kiện, đủ vượt ngưỡng một trăm ký tự để được xem là nội dung thật.</p></figcaption></figure>
+<p>Đoạn văn thật có nhắc tới nguồn ảnh: "theo Ảnh:越通社 trong bài" và vẫn phải được giữ nguyên vì không nằm trong figure.</p>
+</article></body></html>"##;
+    let (_t, paras) = fetcher::extract(html);
+    let joined = paras.join("\n");
+    for must_keep in [
+        "Đây là một chú thích dài và có ý nghĩa giải thích",
+        "Đoạn văn thật có nhắc tới nguồn ảnh",
+    ] {
+        if !joined.contains(must_keep) {
+            return Err(format!("'{}' phải được GIỮ nhưng bị lọc nhầm", must_keep));
+        }
+    }
+    for must_drop in [
+        "Chú thích ảnh ngắn.",
+        "Ảnh: TRẦN VĂN A",
+        "Nguồn: Reuters",
+    ] {
+        if joined.contains(must_drop) {
+            return Err(format!("credit/caption '{}' phải bị bỏ", must_drop));
+        }
+    }
+    if paras.len() != 2 {
+        return Err(format!("kỳ vọng 2 đoạn, được {}: {:#?}", paras.len(), paras));
+    }
+    Ok(())
+}
+
+/// 33. [BẢN 2.6] "link farm": ul không mang class gì vẫn bị nhận diện là menu nhờ
+/// mật độ link; mục danh sách thật và đoạn có ít link vẫn được giữ.
+fn t_link_farm_extract() -> Result<(), String> {
+    let html = r##"<html><head><title>Link farm</title></head><body><article>
+<ul class="clearfix">
+<li><a href="/a">Bóng đá</a> <a href="/b">Bóng rổ</a> <a href="/c">Võ thuật</a> <a href="/d">Khỏe 360</a> <a href="/e">Video</a> <a href="/f">SEA Games 31</a> <a href="/g">Tin tức</a></li>
+<li>Hạ ngưỡng công bố quyên góp từ 16.900 AUD xuống còn 1.000 AUD cho mỗi lần tài trợ.</li>
+<li><a href="/x">Đọc thêm: bài viết liên quan rất dài về chủ đề tương tự ở chuyên mục khác</a></li>
+</ul>
+<p>Đoạn văn thật có một <a href="/ref">liên kết tham chiếu</a> duy nhất, tỷ lệ ký tự nằm trong link rất thấp nên vẫn được giữ lại.</p>
+</article></body></html>"##;
+    let (_t, paras) = fetcher::extract(html);
+    let expected: [&str; 2] = [
+        "Hạ ngưỡng công bố quyên góp",
+        "Đoạn văn thật có một liên kết tham chiếu",
+    ];
+    if paras.len() != expected.len() {
+        return Err(format!(
+            "kỳ vọng {} đoạn (bỏ link farm + li chỉ toàn link), được {}: {:#?}",
+            expected.len(),
+            paras.len(),
+            paras
+        ));
+    }
+    for (i, (got, want)) in paras.iter().zip(expected.iter()).enumerate() {
+        if !got.contains(want) {
+            return Err(format!("đoạn {} phải chứa {:?}, được {:?}", i + 1, want, got));
+        }
+    }
+    Ok(())
+}
+
+/// Chạy toàn bộ bộ kiểm — mỗi bài trong thread riêng (panic = FAIL, không sập tiến trình).
 pub fn run_all() -> Vec<TestResult> {
     let tests: Vec<(&str, fn() -> Result<(), String>)> = vec![
         ("01. tách đoạn (dòng trống / dòng đơn / CRLF)", t_split_paragraphs),
@@ -1719,6 +1863,9 @@ pub fn run_all() -> Vec<TestResult> {
         ("28. [BẢN 2.5] Rescan: chấm lại điểm hàng (công thức + ngưỡng + từ chối một phía)", t_rescan_row),
         ("29. [BẢN 2.5] xuất sau khi tráo chéo khối: tha thứ I3, I1 vẫn gắt", t_export_after_reorder),
         ("30. [BẢN 2.5] đầu vào xấu của move_block + no-op không đẩy history", t_move_invalid),
+        ("31. [BẢN 2.6][REGRESSION] mega-menu/ribbon/modal/comment theo class — tuoitre.vn", t_mega_menu_extract),
+        ("32. [BẢN 2.6] caption/credit ảnh trong figure: bỏ credit ngắn, giữ caption dài", t_caption_credit_extract),
+        ("33. [BẢN 2.6] \"link farm\": mật độ link nhận diện menu không cần class", t_link_farm_extract),
     ];
 
     let mut results = Vec::with_capacity(tests.len());

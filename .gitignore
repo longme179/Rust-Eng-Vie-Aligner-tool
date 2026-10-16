@@ -4,4 +4,7 @@ nohup.out
 *.log
 labse-service.pid
 labse-venv/
+labse/model/
+__pycache__/
+*.pyc
 dist/

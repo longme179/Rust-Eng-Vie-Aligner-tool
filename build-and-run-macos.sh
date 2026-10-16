@@ -6,7 +6,9 @@
 # Script này TỰ LÀM 5 việc:
 #   1. Biên dịch app Rust từ mã nguồn (cần Rust — tự báo nếu thiếu)
 #   2. Tạo môi trường Python riêng (labse-venv) + cài sentence-transformers
-#   3. Tải model LaBSE về máy (chỉ lần ĐẦU — cần mạng, ~2 GB, có cache)
+#      (CHỈ cài khi chưa có — không nâng cấp, không tải lại PyTorch)
+#   3. Kiểm tra model LaBSE trong labse/model/ (đã có thì bỏ qua ngay — KHÔNG
+#      cần mạng; chưa có mới tải ~2 GB MỘT LẦN rồi lưu vào đó mãi mãi)
 #   4. Khởi động dịch vụ LaBSE ở 127.0.0.1:3031 (nền)
 #   5. Chạy app tại http://localhost:3000 — nhấn Ctrl+C để dừng
 #
@@ -44,10 +46,16 @@ if [ ! -d labse-venv ]; then
 fi
 # shellcheck disable=SC1091
 source labse-venv/bin/activate
-echo "» Cài sentence-transformers + PyTorch (lần đầu tải ~2 GB — cần mạng)…"
-python -m pip install -q --upgrade pip
-python -m pip install -q sentence-transformers
-echo "» Tải model LaBSE về máy (chỉ lần đầu, có cache sẵn cho lần sau)…"
+# CHỈ cài khi chưa có — không nâng cấp: pip nâng cấp sẽ kéo PyTorch mới (~2 GB)
+# và người dùng cảm giác như "tải lại model mỗi lần build".
+if python -c "import sentence_transformers" >/dev/null 2>&1; then
+  echo "» sentence-transformers đã cài — bỏ qua (không nâng cấp, không tải lại)."
+else
+  echo "» Cài sentence-transformers + PyTorch (lần đầu tải ~2 GB — cần mạng)…"
+  python -m pip install -q --upgrade pip
+  python -m pip install -q sentence-transformers
+fi
+echo "» Kiểm tra model LaBSE trong labse/model/ (có sẵn thì xong ngay, không cần mạng)…"
 python labse/download_model.py
 
 # ---------- 3) dịch vụ LaBSE (nền, cổng 3031) ----------

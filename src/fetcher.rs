@@ -1,6 +1,22 @@
 //! fetcher.rs — tải bài từ URL và trích đoạn văn bản.
 //! Hoạt động offline-safe: không tải gì thêm ngoài URL người dùng nhập.
 //!
+//! BẢN 2.6 — SỬA LỖI "hớt cả ribbon/menu vào văn bản" (báo cáo trên tuoitre.vn):
+//! bản ≤2.5 chỉ bỏ subtree <nav>/<aside>/<footer>, nhưng ribbon/mega-menu/modal
+//! của nhiều báo nằm trong <div class="popup-megamenu">, <ul class="menu-nav">…
+//! (không dùng thẻ nav) nên tràn hết vào kết quả. Bộ lọc mới 3 tầng, tổng quát
+//! cho mọi trang tin (không hard-code theo tên site):
+//!   1. CHROME THEO THUỘC TÍNH: mọi <p>/<li> có TỔ TIÊN bất kỳ (hoặc chính nó)
+//!      mang class/id chứa từ khoá giao diện (menu, nav, mega, ribbon, modal,
+//!      popup, comment, share, sidebar, breadcrumb, newslette(r), related,
+//!      login, banner…) bị bỏ — so KHÔP CHUỖI con sau khi bỏ ký tự ngăn cách.
+//!   2. MẬT ĐỘ LINK ("link farm"): đoạn có ≥5 link và ≥55% ký tự nằm trong
+//!      thẻ <a> (hoặc ≥2 link với ≥80%) là menu/danh sách bài liên quan — bỏ.
+//!      Đoạn văn thật gần như không bao giờ toàn link.
+//!   3. CAPTION/CRÉDIT ẢNH: <p> nằm trong <figure>/<figcaption> là chú thích —
+//!      bỏ khi ngắn (<100 ký tự) hoặc là dòng credit ("Ảnh: X", "Nguồn: Y"…).
+//! Bên cạnh đó, mọi quy tắc của bản 2.3 (li, boilerplate, icon-card…) giữ nguyên.
+//!
 //! BẢN 2.3 — SỬA LỖI "thiếu mục danh sách": bản ≤2.2 chỉ quét thẻ <p>, nên các mục
 //! danh sách <li> trong <ul>/<ol> của bài bị BỎ SÓT toàn bộ (vd: bài SBS có
 //! "Những thay đổi được đề xuất bao gồm:" + 3 gạch đầu dòng → chỉ lấy được câu dẫn).
@@ -14,8 +30,6 @@
 //!   * li "icon/card giao diện" (có <img>/<svg> mà văn bản < 50 ký tự) bị bỏ.
 //!   * độ dài tối thiểu: p ≥ 30 ký tự (như cũ), li ≥ 12 ký tự (mục danh sách
 //!     thường ngắn hơn đoạn văn).
-//! Đối chiếu trên 2 bài SBS thật: VI 27→47 đoạn (thêm đúng 20 mục danh sách thật,
-//! giữ nguyên 27 đoạn cũ đúng thứ tự), EN 33→33 (không đổi, mọi li rác bị lọc đúng).
 
 use std::time::Duration;
 
@@ -28,6 +42,31 @@ const MIN_ITEM_LEN: usize = 12; // mục danh sách được ngắn hơn đoạn
 const LI_MIN_NON_ANCHOR_TEXT: usize = 8;
 /// li có <img>/<svg> mà toàn bộ văn bản ngắn hơn ngưỡng này ⇒ icon/card giao diện.
 const LI_ICON_CARD_MAX_TEXT: usize = 50;
+/// <p> trong <figure>/<figcaption> ngắn hơn ngưỡng này ⇒ caption/credit ảnh, bỏ.
+const CAPTION_MAX_LEN: usize = 100;
+/// "Link farm": từ ngưỡng link + mật độ ký tự nằm trong <a> trở lên ⇒ menu/danh sách liên kết.
+const LINKFARM_MIN_LINKS: usize = 5;
+const LINKFARM_MIN_RATIO: f64 = 0.55;
+/// Dạng cực đoan: gần như TOÀN link (teaser "Đọc thêm", khối bài liên quan dày).
+const LINKFARM_STRICT_LINKS: usize = 2;
+const LINKFARM_STRICT_RATIO: f64 = 0.80;
+
+/// Từ khoá "giao diện trang" trong class/id của thẻ HTML (thường hoá ascii, so chuỗi con
+/// trên chuỗi đã bỏ mọi ký tự không phải chữ/số — nên "menu-nav", "sub_all_menu_main",
+/// "top-bar", "popup-megamenu", "detail__newslette"… đều trúng).
+/// KỸ (rút từ thực tế các báo lớn):
+/// * KHÔNG dùng "form" — đánh trúng "format-standard" của WordPress;
+/// * KHÔNG dùng "header" — bài viết thường nằm trong article-header;
+/// * KHÔNG dùng "sidebar" — vnexpress.net đặt CẢ BÀI VIẾT trong div.sidebar-1
+///   (tên cột bố cục, không phải thanh bên!) — giết nhầm toàn bộ bài;
+/// * KHÔNG dùng "banner" — hero-banner có thể chứa đoạn mở đầu bài.
+/// Ngoài ra có LƯỚI AN TOÀN: nếu lọc chặt mà trăng tay (0 đoạn) thì tự chạy lại
+/// ở chế độ lỏng (bỏ lọc class/id tổ tiên) — xem `extract`.
+const CHROME_ATTR_KEYWORDS: &[&str] = &[
+    "menu", "nav", "mega", "ribbon", "breadcrumb", "modal", "popup", "comment", "share",
+    "social", "topbar", "newslette", "login", "signin", "signup", "register",
+    "related", "sitemap", "toolbar", "subscribe",
+];
 
 pub struct FetchedPage {
     pub url: String,
@@ -48,7 +87,7 @@ pub fn fetch(url: &str) -> Result<FetchedPage, String> {
         .get(url)
         .set(
             "User-Agent",
-            "Mozilla/5.0 (compatible; reva-tool/2.5; +local-aligner)",
+            "Mozilla/5.0 (compatible; reva-tool/2.6; +local-aligner)",
         )
         .set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
         .set("Accept-Language", "en,vi;q=0.9")
@@ -92,11 +131,28 @@ pub fn fetch(url: &str) -> Result<FetchedPage, String> {
 
 /// Trả về (title, các đoạn <p> + mục <li> đã làm sạch — theo đúng thứ tự tài liệu).
 ///
-/// BẢN 2.3: từ máy quét thẻ có stack — vừa lấy <p> vừa lấy <li> của <ul>/<ol>
-/// (sửa lỗi "chỉ lấy được câu dẫn, mất hết mục gạch đầu dòng").
-/// Dùng `to_ascii_lowercase` (không phải `to_lowercase`) để vị trí byte KHỚP TUYỆT ĐỐI
-/// với HTML gốc khi cắt slice — mọi pattern cần so khớp đều là thẻ ASCII.
+/// BẢN 2.6: thêm 3 tầng lọc — chrome theo class/id tổ tiên, mật độ link,
+/// caption/credit ảnh (xem đầu file). Bản 2.3: máy quét thẻ có stack — vừa lấy
+/// <p> vừa lấy <li> của <ul>/<ol>.
+///
+/// LƯỚI AN TOÀN 2 LƯỢT: lượt 1 (chặt) áp đủ mọi tầng lọc; nếu kết quả TRẮNG TAY
+/// mà trang rõ ràng có nội dung, lượt 2 (lỏng) bỏ duy nhất tầng lọc class/id tổ tiên
+/// (tầng dễ gặp cấu trúc lạ nhất — vd vnexpress.net đặt cả bài trong div.sidebar-1)
+/// nhưng vẫn giữ nav/aside/footer + boilerplate + link-farm + caption. Thanks đó,
+/// một trang "đặt tên class lạ" tối đa cho lẫn vài khối chrom — không bao giờ lỗi
+/// "không tìm thấy đoạn" như khi bỏ lưới an toàn.
 pub fn extract(html: &str) -> (String, Vec<String>) {
+    let (title, strict) = extract_pass(html, true);
+    if !strict.is_empty() {
+        return (title, strict);
+    }
+    let (title, relaxed) = extract_pass(html, false);
+    (title, relaxed)
+}
+
+/// Một lượt trích. `strict = true` áp đủ 3 tầng lọc chrom; `strict = false` bỏ
+/// lọc theo class/id tổ tiên (lưới an toàn cho cấu trúc đặt tên lạ).
+fn extract_pass(html: &str, strict: bool) -> (String, Vec<String>) {
     let lower = html.to_ascii_lowercase();
     let bytes = html.as_bytes();
 
@@ -124,13 +180,19 @@ pub fn extract(html: &str) -> (String, Vec<String>) {
         }
     }
 
-    // ---- quét block p/li theo thứ tự tài liệu (bản 2.3) ----
+    // ---- quét block p/li theo thứ tự tài liệu (bản 2.3 + lọc 2.6) ----
     let mut paras: Vec<String> = Vec::new();
-    for block in collect_blocks(&lower) {
+    for block in collect_blocks(&lower, strict) {
         let inner = &html[block.inner_start..block.inner_end];
         let text = collapse(&decode_entities(&strip_tags(inner)));
         if is_boilerplate(&text) {
             continue; // chrom giao diện trang (timestamp, nút chia sẻ, newsletter…) — không phải nội dung bài
+        }
+        // ---- TẦNG 3 (2.6): caption/credit ảnh ----
+        if block.in_caption
+            && (text.chars().count() < CAPTION_MAX_LEN || is_photo_credit(&text))
+        {
+            continue;
         }
         if block.kind == "li" {
             // li "chỉ toàn link": phần văn bản NGOÀI mọi thẻ <a> gần như rỗng —
@@ -142,6 +204,19 @@ pub fn extract(html: &str) -> (String, Vec<String>) {
             let frag = &lower[block.inner_start..block.inner_end];
             if (has_tag_open(frag, "img") || has_tag_open(frag, "svg"))
                 && text.chars().count() < LI_ICON_CARD_MAX_TEXT
+            {
+                continue;
+            }
+        }
+        // ---- TẦNG 2 (2.6): "link farm" — menu/danh sách bài liên quan ----
+        // Áp cho CẢ p lẫn li: đoạn văn thật gần như không bao giờ có ≥5 link chiếm
+        // ≥55% ký tự; menu thì link là gần như toàn bộ.
+        let total = text.chars().count();
+        let (links, anchor_chars) = link_stats(inner);
+        if total > 0 {
+            let ratio = anchor_chars as f64 / total as f64;
+            if (links >= LINKFARM_MIN_LINKS && ratio >= LINKFARM_MIN_RATIO)
+                || (links >= LINKFARM_STRICT_LINKS && ratio >= LINKFARM_STRICT_RATIO)
             {
                 continue;
             }
@@ -158,7 +233,7 @@ pub fn extract(html: &str) -> (String, Vec<String>) {
     (title, paras)
 }
 
-// ========================= Máy quét thẻ (bản 2.3) =========================
+// ========================= Máy quét thẻ (bản 2.3 + attr 2.6) =========================
 
 /// Thẻ "void" không bao giờ có thẻ đóng (HTML5) — không đưa vào stack.
 fn is_void_tag(name: &str) -> bool {
@@ -169,9 +244,29 @@ fn is_void_tag(name: &str) -> bool {
     )
 }
 
-/// Container "chrom giao diện" — mọi block p/li bên trong bị bỏ khi tải URL.
+/// Container "chrom giao diện" theo TÊN THẺ — mọi block p/li bên trong bị bỏ khi tải URL.
 fn is_chrome_container(name: &str) -> bool {
     matches!(name, "nav" | "aside" | "footer")
+}
+
+/// Container "chú thích ảnh" — <p>/<li> bên trong là caption/credit.
+fn is_caption_container(name: &str) -> bool {
+    matches!(name, "figure" | "figcaption")
+}
+
+/// Chuẩn hoá để so khớp từ khoá chrome: bỏ mọi ký tự không phải chữ/số
+/// ("menu-nav"→"menunav", "top-bar"→"topbar", "detail__newslette"→"detailnewslette").
+fn norm_attr(s: &str) -> String {
+    s.chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
+/// class/id của thẻ có phải "giao diện trang" (menu, modal, comment…) không.
+fn has_chrome_attr(class_id: &str) -> bool {
+    if class_id.is_empty() {
+        return false;
+    }
+    let normed = norm_attr(class_id);
+    CHROME_ATTR_KEYWORDS.iter().any(|kw| normed.contains(kw))
 }
 
 /// Một thẻ đã quét được (chỉ chứa thông tin vị trí + tên).
@@ -184,6 +279,53 @@ struct Tag {
     name: String,
     is_close: bool,
     is_self_close: bool,
+    /// giá trị class + id của thẻ (đã thường hoá ascii, nối bằng dấu cách) — bản 2.6
+    class_id: String,
+}
+
+/// Trích giá trị thuộc tính class/id từ phần chữ của thẻ `<div class="x" id='y'>`.
+/// Chấp nhận nháy kép/nhơn/không nháy; từ khoá phải đứng đầu tên thuộc tính
+/// (để "data-id=" không bị nhầm là "id=").
+fn attr_class_id(tag_text: &str) -> String {
+    let mut out = String::new();
+    for key in ["class", "id"] {
+        let pat = format!("{}=", key);
+        let mut pos = 0usize;
+        while let Some(rel) = tag_text[pos..].find(&pat) {
+            let at = pos + rel;
+            // ký tự TRƯỚC phải là ranh giới tên thuộc tính (không phải chữ/số/-/_)
+            let before_ok = tag_text[..at]
+                .chars()
+                .last()
+                .map_or(true, |c| !(c.is_alphanumeric() || c == '-' || c == '_' || c == ':'));
+            if !before_ok {
+                pos = at + pat.len();
+                continue;
+            }
+            let rest = &tag_text[at + pat.len()..];
+            let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'');
+            let (val, adv) = match quote {
+                Some(q) => match rest[1..].find(q) {
+                    Some(endrel) => (&rest[1..1 + endrel], endrel + 2),
+                    None => break, // hỏng nháy — bỏ tên này
+                },
+                None => {
+                    let endrel = rest
+                        .find(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/')
+                        .unwrap_or(rest.len());
+                    (&rest[..endrel], endrel)
+                }
+            };
+            if !val.is_empty() {
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(val);
+            }
+            pos = at + pat.len() + adv;
+        }
+    }
+    out
 }
 
 /// Quét TẤT CẢ thẻ theo thứ tự tài liệu. Chịu được:
@@ -243,12 +385,19 @@ fn scan_tags(lower: &str) -> Vec<Tag> {
             None => break, // thẻ hỏng không đóng — phần còn lại không dùng được
         };
         let is_self_close = gt > 0 && b[gt - 1] == b'/';
+        // bản 2.6: lấy class/id của thẻ (chỉ thẻ MỞ cần; thẻ đóng bỏ qua cho nhanh)
+        let class_id = if is_close {
+            String::new()
+        } else {
+            attr_class_id(&lower[i + 1..gt])
+        };
         tags.push(Tag {
             start: i,
             end: gt + 1,
             name,
             is_close,
             is_self_close,
+            class_id,
         });
         i = gt + 1;
     }
@@ -263,29 +412,35 @@ struct Block {
     inner_start: usize,
     /// vị trí '<' của thẻ đóng tương ứng
     inner_end: usize,
+    /// nằm trong <figure>/<figcaption> (bản 2.6 — quy tắc caption)
+    in_caption: bool,
 }
 
 /// Duyệt stack thẻ, thu các block p/li THEO THỨ TỰ TÀI LIỆU, áp quy tắc lọc chrom:
-/// * bỏ mọi block nằm trong <nav>/<aside>/<footer>;
+/// * bỏ mọi block nằm trong <nav>/<aside>/<footer> (tên thẻ) — bản 2.3;
+/// * bỏ mọi block có TỔ TIÊN hoặc CHÍNH NÓ mang class/id chrome (menu, modal,
+///   comment, related…) — bản 2.6 (tầng 1);
 /// * <p> chỉ nhận khi không nằm trong <li> (tránh trùng lặp <li><p>…</p></li>);
 /// * <li> chỉ nhận khi nằm trong <ul>/<ol>, không lồng trong <li> khác
 ///   (mục lồng cấp 2 như cũ vẫn bị bỏ — hiếm và thường là giao diện).
 /// Chịu HTML không khớp hoàn hảo: thẻ đóng khớp với thẻ mở GẦN NHẤT cùng tên
 /// (thẻ con không đóng sẽ được đóng ngầm — đúng cách trình duyệt xử lý).
-fn collect_blocks(lower: &str) -> Vec<Block> {
+fn collect_blocks(lower: &str, strict: bool) -> Vec<Block> {
     let tags = scan_tags(lower);
-    // stack: (tên thẻ, capture_start nếu là p/li ĐƯỢC nhận)
-    let mut stack: Vec<(String, Option<usize>)> = Vec::new();
+    // stack: (tên thẻ, capture_start nếu là p/li ĐƯỢC nhận, class/id chrome?,
+    //         nằm trong figure/figcaption? — ghi lúc MỞ thẻ)
+    let mut stack: Vec<(String, Option<usize>, bool, bool)> = Vec::new();
     let mut blocks: Vec<Block> = Vec::new();
     for tag in tags {
         if tag.is_close {
-            if let Some(k) = stack.iter().rposition(|(nm, _)| *nm == tag.name) {
-                for (nm, cap) in stack.split_off(k) {
+            if let Some(k) = stack.iter().rposition(|(nm, _, _, _)| *nm == tag.name) {
+                for (nm, cap, _, in_cap) in stack.split_off(k) {
                     if let Some(inner_start) = cap {
                         blocks.push(Block {
                             kind: if nm == "p" { "p" } else { "li" },
                             inner_start,
                             inner_end: tag.start,
+                            in_caption: in_cap,
                         });
                     }
                 }
@@ -295,18 +450,29 @@ fn collect_blocks(lower: &str) -> Vec<Block> {
         if is_void_tag(&tag.name) || tag.is_self_close {
             continue;
         }
-        let in_li = stack.iter().any(|(nm, _)| nm == "li");
-        let in_p = stack.iter().any(|(nm, _)| nm == "p");
-        let in_chrome = stack.iter().any(|(nm, _)| is_chrome_container(nm));
-        let in_list = stack.iter().any(|(nm, _)| nm == "ul" || nm == "ol");
-        let cap = if tag.name == "p" && !in_li && !in_p && !in_chrome {
+        let in_li = stack.iter().any(|(nm, _, _, _)| *nm == "li");
+        let in_p = stack.iter().any(|(nm, _, _, _)| *nm == "p");
+        let in_chrome = stack.iter().any(|(nm, _, _, _)| is_chrome_container(nm));
+        let in_caption = stack.iter().any(|(nm, _, _, _)| is_caption_container(nm));
+        let in_list = stack.iter().any(|(nm, _, _, _)| *nm == "ul" || *nm == "ol");
+        let own_chrome = strict && has_chrome_attr(&tag.class_id);
+        let in_attr_chrome = strict && stack.iter().any(|(_, _, c, _)| *c);
+        let cap = if tag.name == "p" && !in_li && !in_p && !in_chrome && !in_attr_chrome && !own_chrome
+        {
             Some(tag.end)
-        } else if tag.name == "li" && in_list && !in_li && !in_p && !in_chrome {
+        } else if tag.name == "li"
+            && in_list
+            && !in_li
+            && !in_p
+            && !in_chrome
+            && !in_attr_chrome
+            && !own_chrome
+        {
             Some(tag.end)
         } else {
             None
         };
-        stack.push((tag.name, cap));
+        stack.push((tag.name, cap, own_chrome, in_caption));
     }
     blocks
 }
@@ -350,6 +516,43 @@ fn non_anchor_text(inner: &str) -> String {
     collapse(&decode_entities(&strip_tags(&out)))
 }
 
+/// Thống kê link của một đoạn HTML: (số thẻ <a> mở ở tầng ngoài, tổng ký tự văn bản
+/// nằm TRONG link). Bản 2.6 — dùng cho quy tắc "link farm".
+fn link_stats(inner: &str) -> (usize, usize) {
+    let lower = inner.to_ascii_lowercase();
+    let tags = scan_tags(&lower);
+    let mut links = 0usize;
+    let mut anchor_chars = 0usize;
+    let mut depth = 0usize;
+    let mut seg_start: Option<usize> = None;
+    for tag in tags {
+        if tag.name != "a" {
+            continue;
+        }
+        if tag.is_close {
+            if depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(s) = seg_start.take() {
+                        if tag.start > s {
+                            let frag = &inner[s..tag.start];
+                            anchor_chars +=
+                                collapse(&decode_entities(&strip_tags(frag))).chars().count();
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        if depth == 0 {
+            seg_start = Some(tag.end);
+            links += 1;
+        }
+        depth += 1;
+    }
+    (links, anchor_chars)
+}
+
 /// Đoạn `frag` (đã thường hoá) có chứa thẻ mở `<name` hợp lệ không
 /// (theo sau là khoảng trắng, '>' hoặc '/').
 fn has_tag_open(frag: &str, name: &str) -> bool {
@@ -362,6 +565,17 @@ fn has_tag_open(frag: &str, name: &str) -> bool {
             return true;
         }
         pos = at + pat.len();
+    }
+    false
+}
+
+/// Dòng credit/cung cấp ảnh — "Ảnh: C.DŨNG", "Nguồn: Reuters", "Photo: AFP"…
+fn is_photo_credit(text: &str) -> bool {
+    let t = text.to_lowercase();
+    for marker in ["ảnh:", "photo:", "credit:", "nguồn:", "source:", "foto:"] {
+        if t.contains(marker) {
+            return true;
+        }
     }
     false
 }

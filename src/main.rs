@@ -1,8 +1,12 @@
-//! main.rs — REVA tool (reva-tool) v2.5
+//! main.rs — REVA tool (reva-tool) v2.6
 //! Web server 1-binary: giao diện + API, chạy 100% cục bộ.
+//! Bản 2.6: bộ trích URL 3 tầng lọc chrom (class/id tổ tiên, mật độ link,
+//!           caption/credit ảnh) + flag dòng lệnh `--extract <file.html>` để soi
+//!           nhanh các đoạn sẽ lấy từ 1 file HTML (kiểm tra/hủy trừ khi phát triển).
+//!           LaBSE giờ lưu trong labse/model/ (tải 1 lần, build lại không tải lại).
 //! Bản 2.5: mô hình KHỐI kéo–thả tự do (mỗi đoạn = 1 khối, đổi chỗ tuỳ ý) +
 //!           hoàn tác/làm lại (Ctrl+Z) + Rescan LaBSE từng hàng + đổi tên REVA tool.
-//! Bản 2.4: kéo–thả gộp hàng (1 EN ↔ nhiều VI) + API gộp hàng.
+//! Bản 2.4: kéo–thả gộp hàng (EN ↔ VI) + API gộp hàng.
 //! Bản 2.3: trích <li> khi tải URL + tô màu 3 mức + xuất CSV/HTML/XLIFF + LaBSE tuỳ chọn.
 
 mod aligner;
@@ -674,6 +678,38 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() {
+    // ---- tiện ích dòng lệnh (bản 2.6) — chạy xong là thoát, không mở server ----
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("reva-tool {} (REVA tool — ghép & sắp đoạn Anh–Việt)", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if let Some(pos) = args.iter().position(|a| a == "--extract") {
+        // reva-tool --extract <file.html> : in tiêu đề + các đoạn sẽ lấy từ file HTML.
+        // Dùng để kiểm tra bộ trích trên trang đã lưu (không cần mạng, không cần server).
+        let path = args.get(pos + 1).cloned().unwrap_or_default();
+        if path.is_empty() {
+            eprintln!("Dùng: reva-tool --extract <file.html>");
+            std::process::exit(2);
+        }
+        match std::fs::read_to_string(&path) {
+            Ok(html) => {
+                let (title, paras) = fetcher::extract(&html);
+                println!("FILE:       {}", path);
+                println!("TITLE:      {}", title);
+                println!("PARAGRAPHS: {}", paras.len());
+                for (i, p) in paras.iter().enumerate() {
+                    println!("{:>3}| {}", i + 1, p);
+                }
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Không đọc được {}: {}", path, e);
+                std::process::exit(2);
+            }
+        }
+    }
+
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.trim().parse().ok())

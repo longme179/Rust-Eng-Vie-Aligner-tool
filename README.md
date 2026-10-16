@@ -1,9 +1,18 @@
-# REVA tool (`reva-tool`) v2.5
+# REVA tool (`reva-tool`) v2.6
 
 > Tiền thân: **Cánh đôi Anh–Việt** (`canh-doi-anh-viet`) — cùng công cụ, đổi tên từ bản 2.5.
 
 Công cụ **ghép & sắp đoạn văn bản Anh–Việt** (chỉ ghép, không dịch) đóng gói thành **một chương trình Rust duy nhất**:
 giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **100% cục bộ** trên máy bạn — không gửi dữ liệu đi đâu.
+
+**Bản 2.6 — bộ trích URL 3 tầng lọc chrom + LaBSE không bao giờ tải lại**: khi tải bài từ URL, mọi rác giao diện
+trang báo (ribbon/mega-menu, khối modal/đăng nhập/bình luận, credit ảnh "Ảnh: X…", tin liên quan) bị loại bằng
+3 lớp tổng quát: **(1)** class/id tổ tiên chứa từ khoá giao diện (menu, nav, modal, popup, comment, share,
+related, newslette…), **(2)** "link farm" — mật độ ký tự nằm trong thẻ `<a>` (menu gần như toàn link),
+**(3)** quy tắc caption/credit ảnh trong `<figure>/<figcaption>` (bỏ credit ngắn, GIỮ caption dài).
+Model LaBSE giờ được **lưu trong `labse/model/`** — tải đúng 1 lần; build/cập nhật mã nguồn bao nhiêu lần
+cũng **không tải lại**, script build cũng không nâng cấp PyTorch khi đã cài. Thêm flag dòng lệnh
+`reva-tool --extract <file.html>` để soi nhanh các đoạn sẽ lấy từ 1 file HTML.
 
 **Bản 2.5 — MÔ HÌNH KHỐI kéo–thả tự do + hoàn tác**: sau khi ghép, **mỗi đoạn văn là một khối** co giãn theo độ lớn chữ.
 Kéo khối vào ô cùng ngôn ngữ của HÀNG BẤT KỲ (ví dụ EN có A B C, VI có A1 B1 C1 D1 E1 → kéo D1, E1 lên chung sau C1),
@@ -53,9 +62,11 @@ Kéo khối vào ô cùng ngôn ngữ của HÀNG BẤT KỲ (ví dụ EN có A 
   bản tin, địa chỉ bưu điện…) — chỉ giữ nội dung thật của bài.
 - **Tô màu 3 mức theo trạng thái** (bản 2.3): hàng **xanh** = khớp/khớp phần lớn (tự khớp + đã xác nhận), hàng **vàng** = cần soát/khớp một phần, hàng **đỏ** = không khớp hoàn toàn — áp cả trong giao diện lẫn file HTML xuất ra.
 - **Đúng 3 nút đánh dấu trên mỗi hàng** (bản 2.3): `✓ Khớp` (xanh) · `⚠ Soát` (vàng) · `✕ Không khớp` (đỏ, tách cặp thành các hàng `none`) — bấm xong xuất file là xong.
-- **Tự kiểm tra (selftest)**: 30 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
+- **Tự kiểm tra (selftest)**: 33 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
   (panic `index 61`, "không ghép được bài thứ hai", "nút Ghép bị mờ sau khi tải URL", "tải URL mất mục `<li>`"),
-  1 bài **tích hợp LaBSE**, 4 bài **gộp hàng** (bản 2.4) và **5 bài mô hình khối** (bản 2.5):
+  1 bài **tích hợp LaBSE**, 4 bài **gộp hàng** (bản 2.4), 5 bài **mô hình khối** (bản 2.5) và
+  **3 bài bộ lọc chrom** (bản 2.6): mega-menu/ribbon/modal/comment theo class (tuoitre.vn),
+  caption/credit ảnh, "link farm" không cần class:
   kéo khối + hoàn tác/làm lại nguyên xi, tách khối + prune hàng rỗng, Rescan (công thức + ngưỡng + từ chối một phía),
   xuất sau khi tráo chéo khối (tha thứ đơn điệu, "mỗi đoạn 1 lần" vẫn gắt), đầu vào xấu của `move_block`.
 
@@ -70,8 +81,10 @@ Người dùng chỉ cần mang thư mục mã nguồn này vào terminal và ch
 | **Linux** | `bash build-and-run-linux.sh` |
 
 File lệnh tự làm 5 việc: cài Rust nếu thiếu → biên dịch app → tạo môi trường Python riêng (`labse-venv`)
-+ cài `sentence-transformers` → tải model LaBSE (~2 GB, chỉ lần đầu, có cache) → khởi động LaBSE + app
-và mở sẵn `http://localhost:3000`. Chạy lại lần sau thì gần như tức thì (bỏ qua phần đã cài).
++ cài `sentence-transformers` (**chỉ khi chưa có** — không nâng cấp, để không kéo PyTorch mới mỗi lần) →
+kiểm tra model LaBSE trong `labse/model/` (**đã có thì bỏ qua ngay, không cần mạng**; chưa có mới tải ~2 GB
+**đúng 1 lần** rồi lưu vào đó) → khởi động LaBSE + app và mở sẵn `http://localhost:3000`.
+Chạy lại lần sau thì gần như tức thì (bỏ qua phần đã cài).
 Nhấn **Ctrl+C** để dừng. Không muốn LaBSE? Vẫn chạy bình thường — xem bên dưới.
 
 ## LaBSE — mấu chốt để ghép chính xác
@@ -90,6 +103,10 @@ Bộ từ vựng giỏi bài báo giàu số/tên riêng; LaBSE giỏi **mọi v
 - Giao thức: `labse/labse_service.py` lắng nghe tại `127.0.0.1:3031`;
   `GET /health`, `POST /embed {"texts":[…]}` → `{"embeddings":[[…],…]}` (đã chuẩn hoá L2).
   Đổi địa chỉ bằng biến môi trường `REVA_LABSE_URL` (tên cũ `CANH_DOI_LABSE_URL` vẫn được chấp nhận).
+- **Không bao giờ tải lại model (bản 2.6)**: model nằm trong **`labse/model/`** (do `labse/download_model.py`
+  tạo đúng 1 lần; đổi vị trí bằng biến `REVA_LABSE_MODEL_DIR`). Dịch vụ nạp từ thư mục này ở **chế độ
+  offline** (`HF_HUB_OFFLINE=1`) — không phụ thuộc cache HuggingFace, không chạm mạng, cập nhật
+  mã nguồn/build lại không ảnh hưởng gì. Xoá `~/.cache/huggingface` cũng không mất model.
 - Mỗi phiên lưu kèm `engine` (`lexical` / `lexical+labse`) — mở lại phiên cũ vẫn thấy đúng động cơ đã dùng.
 
 **Lưu ý Linux không có card NVIDIA**: `pip install sentence-transformers` kéo bản PyTorch kèm CUDA (~2.5 GB).
@@ -134,8 +151,8 @@ en-vi-align-rust/
 ├── Cargo.toml                 # khai báo package + dependencies (axum, tokio, serde, ureq…) — binary reva-tool
 ├── static/index.html          # giao diện tiếng Việt (nhúng sẵn vào binary khi build)
 ├── labse/                     # dịch vụ nhúng LaBSE (Python, tuỳ chọn)
-│   ├── labse_service.py       #   lắng nghe 127.0.0.1:3031 — /health, /embed
-│   ├── download_model.py      #   tải model LaBSE về cache (gọi bởi script build)
+│   ├── labse_service.py       #   lắng nghe 127.0.0.1:3031 — /health, /embed (ưu tiên nạp offline từ labse/model)
+│   ├── download_model.py      #   đảm bảo model nằm trong labse/model/ — tải 1 LẦN duy nhất, có rồi thì thoát ngay
 │   ├── wait_health.py         #   chờ service sẵn sàng (script Windows)
 │   └── start-labse-windows.bat#   khởi động service kèm log (script Windows)
 ├── src/

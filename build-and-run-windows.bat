@@ -11,12 +11,14 @@ rem
 rem  Script này TỰ LÀM 5 việc:
 rem    1. Biên dịch app Rust từ mã nguồn (cần Rust — tự báo nếu thiếu)
 rem    2. Tạo môi trường Python riêng (labse-venv) + cài sentence-transformers
-rem    3. Tải model LaBSE về máy (chỉ lần ĐẦU — cần mạng, ~2 GB, có cache)
+rem       (CHỈ cài khi chưa có — không nâng cấp, không tải lại PyTorch)
+rem    3. Kiểm tra model LaBSE trong labse\model\ (đã có thì bỏ qua ngay —
+rem       KHÔNG cần mạng; chưa có mới tải ~2 GB MỘT LẦN rồi lưu vào đó mãi mãi)
 rem    4. Khởi động dịch vụ LaBSE ở 127.0.0.1:3031 (cửa sổ riêng, thu nhỏ)
 rem    5. Chạy app tại http://localhost:3000 — nhấn Ctrl+C để dừng
 rem ============================================================================
 
-echo == Cánh đôi Anh–Việt — build ^& chạy (Windows) ==
+echo == REVA tool — build ^& chạy (Windows) ==
 
 rem ---------- 1) Rust ----------
 where cargo >nul 2>nul
@@ -61,16 +63,23 @@ if not exist "labse-venv\Scripts\python.exe" (
 )
 set "VPY=%~dp0labse-venv\Scripts\python.exe"
 
-echo [2/5] Cài sentence-transformers + PyTorch (lần đầu tải ~2 GB — cần mạng)…
-"%VPY%" -m pip install -q --upgrade pip
-"%VPY%" -m pip install -q sentence-transformers
+rem CHỈ cài khi chưa có — không nâng cấp: pip nâng cấp sẽ kéo PyTorch mới (~2 GB)
+rem và người dùng cảm giác như "tải lại model mỗi lần build".
+"%VPY%" -c "import sentence_transformers" >nul 2>nul
 if errorlevel 1 (
-  echo [X] Cài pip lỗi — kiểm tra kết nối mạng rồi chạy lại.
-  pause
-  exit /b 1
+  echo [2/5] Cài sentence-transformers + PyTorch (lần đầu tải ~2 GB — cần mạng)…
+  "%VPY%" -m pip install -q --upgrade pip
+  "%VPY%" -m pip install -q sentence-transformers
+  if errorlevel 1 (
+    echo [X] Cài pip lỗi — kiểm tra kết nối mạng rồi chạy lại.
+    pause
+    exit /b 1
+  )
+) else (
+  echo [2/5] sentence-transformers đã cài — bỏ qua, không nâng cấp, không tải lại.
 )
 
-echo [3/5] Tải model LaBSE về máy (chỉ lần đầu, có cache sẵn cho lần sau)…
+echo [3/5] Kiểm tra model LaBSE trong labse\model\ (có sẵn thì xong ngay, không cần mạng)…
 "%VPY%" "%~dp0labse\download_model.py"
 if errorlevel 1 (
   echo [X] Tải model lỗi — kiểm tra mạng và chỗ trống đĩa (cần ~2 GB).

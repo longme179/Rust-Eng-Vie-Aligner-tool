@@ -411,7 +411,7 @@
   </div>
   <div class="top-actions">
     <button class="engine-badge" id="engineBadge" type="button" title="Động cơ ghép — nhấn để xem cách bật LaBSE (chế độ chính xác cao)"><span class="dot" aria-hidden="true"></span><span id="engineText" class="etext">đang kiểm tra…</span></button>
-    <button class="btn" id="btnSelftest" title="Chạy 30 bài tự kiểm nội bộ">🧪 Tự kiểm tra</button>
+    <button class="btn" id="btnSelftest" title="Chạy 33 bài tự kiểm nội bộ">🧪 Tự kiểm tra</button>
     <button class="btn" id="btnDrawer" title="Danh sách các phiên đã lưu">📂 Các phiên <span class="n" id="drawerCount" style="font-family:var(--mono)"></span></button>
   </div>
 </header>
@@ -529,7 +529,7 @@
 <footer class="statusbar">
   <span class="live"><span class="dot"></span> Hoạt động cục bộ 100%</span>
   <span id="portInfo">cổng 3000</span>
-  <span title="Bản 2.5 — mô hình khối kéo–thả tự do + hoàn tác Ctrl+Z + Rescan LaBSE từng hàng · Bản 2.4: gộp hàng · Bản 2.3: trích <li>, 3 màu, CSV/HTML/XLIFF, LaBSE">bản 2.5 · REVA</span>
+  <span title="Bản 2.6 — bộ trích URL 3 tầng lọc chrom (menu/modal/caption ảnh) + LaBSE lưu labse/model, build lại không tải lại · Bản 2.5: khối kéo–thả, hoàn tác, Rescan · Bản 2.4: gộp hàng · Bản 2.3: trích <li>, 3 màu, CSV/HTML/XLIFF">bản 2.6 · REVA</span>
   <span>phiên: <span id="curSession">—</span></span>
   <span class="right">
     <span><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> ghép nhanh</span>
@@ -1264,7 +1264,7 @@ async function fetchUrl(side){
 /* ================= Selftest ================= */
 async function runSelftest(){
   $("stModal").classList.add("show");
-  $("stBody").innerHTML = `<p style="color:var(--muted)">Đang chạy 30 bài kiểm tra nội bộ…</p>`;
+  $("stBody").innerHTML = `<p style="color:var(--muted)">Đang chạy 33 bài kiểm tra nội bộ…</p>`;
   try {
     const d = await api("/api/selftest");
     const pills = `
