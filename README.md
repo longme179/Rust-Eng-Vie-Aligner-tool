@@ -1,218 +1,237 @@
-# REVA tool (`reva-tool`) v2.6
+# REVA — công cụ ghép đoạn song ngữ Anh–Việt
 
-> Tiền thân: **Cánh đôi Anh–Việt** (`canh-doi-anh-viet`) — cùng công cụ, đổi tên từ bản 2.5.
+![REVA — giao diện chính](docs/images/reva-ui.png)
 
-Công cụ **ghép & sắp đoạn văn bản Anh–Việt** (chỉ ghép, không dịch) đóng gói thành **một chương trình Rust duy nhất**:
-giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **100% cục bộ** trên máy bạn — không gửi dữ liệu đi đâu.
+**REVA** giúp bạn đi tìm *"đoạn tiếng Anh này tương ứng với đoạn tiếng Việt nào"* giữa một bài gốc và bản dịch — rồi xuất ra **bảng đối chiếu Excel/CSV/HTML…** để soát dịch. REVA **không dịch** — chỉ ghép và sắp xếp.
 
-**Bản 2.6 — bộ trích URL 3 tầng lọc chrom + LaBSE không bao giờ tải lại**: khi tải bài từ URL, mọi rác giao diện
-trang báo (ribbon/mega-menu, khối modal/đăng nhập/bình luận, credit ảnh "Ảnh: X…", tin liên quan) bị loại bằng
-3 lớp tổng quát: **(1)** class/id tổ tiên chứa từ khoá giao diện (menu, nav, modal, popup, comment, share,
-related, newslette…), **(2)** "link farm" — mật độ ký tự nằm trong thẻ `<a>` (menu gần như toàn link),
-**(3)** quy tắc caption/credit ảnh trong `<figure>/<figcaption>` (bỏ credit ngắn, GIỮ caption dài).
-Model LaBSE giờ được **lưu trong `labse/model/`** — tải đúng 1 lần; build/cập nhật mã nguồn bao nhiêu lần
-cũng **không tải lại**, script build cũng không nâng cấp PyTorch khi đã cài. Thêm flag dòng lệnh
-`reva-tool --extract <file.html>` để soi nhanh các đoạn sẽ lấy từ 1 file HTML.
+- 🏠 **Chạy 100% trên máy bạn** — văn bản của bạn không bị gửi lên Internet đâu cả.
+- 🖱️ **Kéo–thả từng đoạn** để sắp xếp lại; làm sai thì **Ctrl+Z hoàn tác ngay**.
+- 🎨 **Xuất Excel tự tô màu**: <span>🟩</span> xanh = khớp · 🟨 vàng = cần soát · 🩷 hồng = không khớp.
 
-**Bản 2.5 — MÔ HÌNH KHỐI kéo–thả tự do + hoàn tác**: sau khi ghép, **mỗi đoạn văn là một khối** co giãn theo độ lớn chữ.
-Kéo khối vào ô cùng ngôn ngữ của HÀNG BẤT KỲ (ví dụ EN có A B C, VI có A1 B1 C1 D1 E1 → kéo D1, E1 lên chung sau C1),
-**đổi thứ tự tuỳ ý**, thả vào thân hàng (hoặc bấm `⇥`) để **tách thành hàng riêng**. Kéo nhầm? **Ctrl+Z hoàn tác ngay**
-(40 bước gần nhất). Mỗi hàng có nút **`↻ Rescan LaBSE`** chấm lại độ khớp sau khi sắp xếp lại.
+> Dùng tốt cho: biên dịch viên, dịch giả sách/truyện, đội dịch nội dung, người học dịch — bất kỳ ai có **2 văn bản song ngữ** cần ghép cặp từng đoạn.
 
-**Bản 2.4 thêm gộp hàng liền kề** (API `/merge` vẫn giữ), **bản 2.3** sửa trích `<li>` khi tải URL + tô màu 3 mức +
-3 nút đánh dấu + xuất CSV/HTML/XLIFF, **bản 2.2** thêm LaBSE (tuỳ chọn nhưng rất nên có — xem [LaBSE](#labse-mấu-chốt-để-ghép-chính-xác)).
+---
 
-```
-[reva-tool] chạy tại http://localhost:3000 (giao diện + API, tất cả cục bộ)
-[reva-tool] LaBSE (tuỳ chọn): http://127.0.0.1:3031 — chạy labse/labse_service.py để bật chế độ chính xác cao
-```
+## Mục lục
 
-## Tính năng
+1. [Bạn cần cài gì? (chỉ 2 phần mềm)](#1-bạn-cần-cài-gì-chỉ-2-phần-mềm)
+2. [Cài đặt từng bước — Windows](#2-cài-đặt-từng-bước--windows)
+3. [Cài đặt từng bước — macOS](#3-cài-đặt-từng-bước--macos)
+4. [Chạy REVA](#4-chạy-reva)
+5. [Khi làm đúng bạn sẽ thấy gì?](#5-khi-làm-đúng-bạn-sẽ-thấy-gì)
+6. [Chạy lại lần sau (rất nhanh)](#6-chạy-lại-lần-sau-rất-nhanh)
+7. [Câu hỏi thường gặp](#7-câu-hỏi-thường-gặp)
+8. [Tính năng chính](#8-tính-năng-chính)
+9. [Cho người phát triển](#9-cho-người-phát-triển)
 
-- **Ghép đoạn song ngữ**: chấm điểm từng cặp đoạn theo từ vựng (từ điển Anh–Việt tích hợp ~500 mục),
-  số liệu (2025, 4.000 = 4,000), danh từ riêng (Hà Nội = Hanoi), bigram nối và vị trí tương đối —
-  sau đó ghép đơn điệu bằng quy hoạch động. Không cần GPU.
-- **LaBSE (tuỳ chọn, bản 2.2)**: nếu dịch vụ LaBSE đang chạy, điểm mỗi cặp còn được **hoà trộn với cosine LaBSE**
-  (công khai, chỉ nâng không hạ — xem bên dưới) → ghép đúng hơn hẳn với bài dịch thoáng/lược bớt.
-- **4 trạng thái chuẩn** (giữ nguyên quy ước bản gốc): `auto_matched` (Tự khớp) · `needs_review` (Cần soát) ·
-  `unmatched` (Không khớp) · `human_confirmed` (Đã xác nhận).
-- **Mô hình khối kéo–thả tự do (bản 2.5)**: sau khi ghép, mỗi đoạn là **một khối 🧩** (co giãn theo độ lớn văn bản):
-  * **Kéo sang ô cùng ngôn ngữ của hàng bất kỳ** — thả giữa hai khối có vạch chỉ vị trí; thả vào ô `none` trống để ghép cặp mồ côi;
-  * **Đổi thứ tự tuỳ ý** trong cùng ô (kéo lên trước / sau) và giữa các hàng — thứ tự xuất file theo đúng thứ tự khối trên màn hình;
-  * **Tách riêng**: thả khối vào thân hàng khác, bấm nút `⇥` trên khối, hoặc bấm chọn khối rồi bấm thân hàng (đường cảm ứng);
-  * **Hoàn tác / làm lại**: `Ctrl+Z` / `Ctrl+Shift+Z` (hoặc nút `↩`/`↪` trên thanh công cụ) — 40 bước gần nhất,
-    bao gồm mọi thao tác: kéo khối, tách, gộp, đánh dấu, rescan;
-  * Hàng mất khối cuối cùng **tự biến mất**; hàng vừa đổi nội dung về `Cần soát` + xoá điểm cũ → luôn biết chỗ cần soát lại.
-- **Rescan LaBSE từng hàng (bản 2.5)**: nút `↻ Rescan LaBSE` trên mỗi hàng chấm lại điểm khớp sau khi kéo–thả —
-  ghép các khối mỗi phía thành 1 văn bản, chấm bằng bộ từ vựng (giữ idf toàn phiên) + hoà trộn cosine LaBSE nếu dịch vụ chạy,
-  cập nhật điểm + trạng thái theo ngưỡng. Không có LaBSE thì vẫn chấm được bằng từ vựng (giao diện báo rõ).
-- **Phiên làm việc**: mỗi lần ghép tạo **một phiên mới độc lập** — ghép bao nhiêu bài liên tiếp cũng không
-  bị "bẩn" dữ liệu nhau. Phiên được lưu tự động vào `data/sessions/*.json` (phiên cũ của bản ≤2.4 vẫn mở được).
-- **Nhả phiên / phiên mới**: nút "Phiên mới" để bắt đầu sạch; drawer "Các phiên" để mở lại hoặc nhả (xoá) phiên cũ;
-  có "Nhả tất cả".
-- **Sửa tay từng cặp**: xác nhận, đánh dấu cần soát, **bỏ ghép (tách cặp thành các hàng `none`)**, trở về tự động.
-- **Kéo–thả gộp hàng liền kề (bản 2.4, API `/merge`)**: gộp hàng kế tiếp vào hàng này — vẫn dùng được qua API;
-  trên giao diện bản 2.5 dùng thao tác kéo khối thay thế (linh hoạt hơn và hoàn tác được).
-- **Xuất file 7 định dạng**: TSV (tab), Moses (`văn bản ||| văn bản`), JSON, **CSV (mở được bằng Excel, kèm BOM UTF-8)**, **HTML (bảng đối chiếu tô màu theo trạng thái)**, **XLIFF 1.2 (cho công cụ dịch/CAT)**, và **Excel `.xlsx` (bản 2.7) — tự tô màu ô theo trạng thái**: hàng
-  **xanh nhạt** = khớp (tự khớp + đã xác nhận), **vàng nhạt** = cần soát/khớp một phần, **hồng nhạt** = không khớp; kèm cột STT/Điểm (%)/Trạng thái tiếng Việt, đóng băng dòng đầu, autofilter, chú giải màu dưới bảng (CSV/TSV là văn bản thuần nên không mang màu được — muốn màu trong Excel thì chọn `.xlsx`). Đoạn thiếu một phía ghi đúng
-  chữ `none` — đúng quy ước bản gốc. **Hàng nhiều khối**: TSV/Moses/XLIFF nối đoạn bằng dấu cách; **CSV và .xlsx giữ
-  từng đoạn một dòng trong cùng một ô** (Excel mở vẫn đúng); JSON kèm `enParts`/`viParts`; HTML ghi rõ từng đoạn gốc.
-  Xuất theo đúng **thứ tự khối đã sắp** (đổi thứ tự tuỳ ý — duy trì bất biến "mỗi đoạn đúng 1 lần").
-- **Tải bài từ URL** (`<p>` + mục danh sách `<li>` theo thứ tự tài liệu, đã lọc chrom trang): dán link bài tiếng Anh/tiếng Việt,
-  công cụ tải và trích đoạn; tự **lược bỏ chrom giao diện trang** (dòng "Published…", "Share this with…", lời mời đăng ký
-  bản tin, địa chỉ bưu điện…) — chỉ giữ nội dung thật của bài.
-- **Tô màu 3 mức theo trạng thái** (bản 2.3): hàng **xanh** = khớp/khớp phần lớn (tự khớp + đã xác nhận), hàng **vàng** = cần soát/khớp một phần, hàng **đỏ** = không khớp hoàn toàn — áp cả trong giao diện lẫn file HTML xuất ra; từ bản 2.7 file **Excel `.xlsx`** cũng tự tô màu từng hàng (xanh nhạt/vàng nhạt/hồng nhạt).
-- **Đúng 3 nút đánh dấu trên mỗi hàng** (bản 2.3): `✓ Khớp` (xanh) · `⚠ Soát` (vàng) · `✕ Không khớp` (đỏ, tách cặp thành các hàng `none`) — bấm xong xuất file là xong.
-- **Tự kiểm tra (selftest)**: 35 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
-  (panic `index 61`, "không ghép được bài thứ hai", "nút Ghép bị mờ sau khi tải URL", "tải URL mất mục `<li>`"),
-  1 bài **tích hợp LaBSE**, 4 bài **gộp hàng** (bản 2.4), 5 bài **mô hình khối** (bản 2.5),
-  **3 bài bộ lọc chrom** (bản 2.6): mega-menu/ribbon/modal/comment theo class (tuoitre.vn),
-  caption/credit ảnh, "link farm" không cần class, và **2 bài Excel `.xlsx`** (bản 2.7 — đọc lại file zip kiểm fill màu từng hàng + hàng gộp):
-  kéo khối + hoàn tác/làm lại nguyên xi, tách khối + prune hàng rỗng, Rescan (công thức + ngưỡng + từ chối một phía),
-  xuất sau khi tráo chéo khối (tha thứ đơn điệu, "mỗi đoạn 1 lần" vẫn gắt), đầu vào xấu của `move_block`.
+---
 
-## Chạy nhanh — 1 lệnh cho mỗi hệ điều hành
+## 1. Bạn cần cài gì? (chỉ 2 phần mềm)
 
-Người dùng chỉ cần mang thư mục mã nguồn này vào terminal và chạy **file lệnh** tương ứng hệ điều hành:
+| Phần mềm | Bắt buộc? | Để làm gì | Dung lượng |
+|---|---|---|---|
+| **Rust** (bộ công cụ biên dịch) | ✅ **Bắt buộc** | Biên dịch REVA thành chương trình chạy được | ~1,5 GB (Windows cần thêm *Visual Studio C++ Build Tools* ~6 GB) |
+| **Python 3** | 🔶 Tuỳ chọn *(rất khuyên dùng)* | Chạy **LaBSE** — chế độ ghép chính xác cao hơn | ~150 MB |
 
-| Hệ điều hành | Lệnh (trong thư mục `en-vi-align-rust`) |
+**Sau đó bạn KHÔNG phải cài thêm gì thủ công nữa.** File lệnh chạy REVA sẽ tự làm các việc còn lại lần đầu tiên:
+
+- tạo môi trường Python riêng cho REVA (`labse-venv`) — không đụng vào Python của máy bạn;
+- tải PyTorch + sentence-transformers (~2 GB, **chỉ lần đầu**);
+- tải model LaBSE (~2 GB, **chỉ đúng 1 lần**, lưu trong thư mục `labse/model/` — về sau build lại mã nguồn bao nhiêu lần cũng **không bao giờ tải lại**).
+
+**Tổng dung lượng cần chuẩn bị: ~6 GB** (Windows: ~12 GB tính cả Visual Studio Build Tools).
+**Không muốn cài Python?** REVA vẫn chạy được bình thường — xem mục [FAQ](#7-câu-hỏi-thường-gặp). LaBSE chỉ là *tuỳ chọn nâng độ chính xác*.
+
+---
+
+## 2. Cài đặt từng bước — Windows
+
+### Bước 0 — Tải mã nguồn REVA
+
+Vào trang [**Releases**](https://github.com/longme179/Rust-Eng-Vie-Aligner-tool/releases) của repo → tìm bản mới nhất → tải file **`en-vi-align-rust-source-vX.Y.zip`** → giải nén ra một thư mục dễ nhớ, ví dụ `C:\reva\en-vi-align-rust`.
+
+### Bước 1 — Cài Rust
+
+1. Mở trình duyệt, vào **https://rustup.rs** → tải file **`rustup-init.exe`**.
+2. Chạy file đó. Nếu Windows hiện bảng xanh *"Windows protected your PC"* → bấm **More info** → **Run anyway** (bình thường với phần mềm mã nguồn mở chưa kí số).
+3. Trong cửa sổ đen hiện ra, nó sẽ hỏi chọn `1` / `2` / `3` → **gõ `1` rồi Enter** (cài mặc định).
+4. Nếu nó báo *"Visual Studio C++ Build Tools is required"* → trả lời **`y`** + Enter, làm theo màn hình installer hiện ra:
+   - giữ nguyên lựa chọn **"Desktop development with C++"** (không cần tick thêm gì) → bấm **Install** → chờ xong (tải ~6 GB).
+5. Cài xong Rust: **đóng hết cửa sổ đen, MỞ CỬA SỔ MỚI** (quan trọng — để Rust nhận đường dẫn).
+
+### Bước 2 — Cài Python (nếu muốn LaBSE chính xác cao)
+
+1. Vào **https://www.python.org/downloads/** → tải bản **Windows installer (64-bit)**.
+2. Chạy file cài: **CỰC KỲ QUAN TRỌNG** — ở màn hình đầu tiên, **TICK vào ô "Add python.exe to PATH"** trước khi bấm Install Now.
+3. Xong. Không cần mở Python làm gì cả — chỉ cần nó nằm trong máy.
+
+### Bước 3 — Chạy
+
+Vào thư mục giải nén lúc nãy (**`en-vi-align-rust`**) → **nháy đúp file `build-and-run-windows.bat`** → xong. Đợi lần đầu ~10–20 phút (xem FAQ). Xem [mục 5](#5-khi-làm-đúng-bạn-sẽ-thấy-gì) để biết bạn sẽ thấy gì.
+
+---
+
+## 3. Cài đặt từng bước — macOS
+
+### Bước 0 — Tải mã nguồn REVA
+
+Vào trang [**Releases**](https://github.com/longme179/Rust-Eng-Vie-Aligner-tool/releases) → tải **`en-vi-align-rust-source-vX.Y.zip`** → giải nén, ví dụ vào `~/reva/en-vi-align-rust`.
+
+### Bước 1 — Cài Rust
+
+1. Mở ứng dụng **Terminal**: nhấn `⌘ Command + Space` → gõ `Terminal` → Enter.
+2. Dán lệnh sau vào Terminal rồi Enter (lệnh chính thức từ trang **https://rustup.rs**):
+
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+
+3. Khi nó hỏi `1) Proceed with installation (default)` → **Enter** (chọn 1).
+4. Nếu macOS bật cửa sổ hỏi cài **"Command Line Tools"** → bấm **Install** và chờ (đây là bộ biên dịch mà Rust cần).
+5. Cài xong, chạy đúng 1 lệnh để Terminal nhận Rust:
+
+   ```bash
+   source ~/.cargo/env
+   ```
+
+### Bước 2 — Cài Python (nếu muốn LaBSE chính xác cao)
+
+- Cách dễ nhất: vào **https://www.python.org/downloads/macos/** → tải bản **macOS 64-bit universal2 installer** → cài như ứng dụng bình thường (nhấn Continue → Agree → Install).
+
+### Bước 3 — Chạy
+
+1. Trong **Terminal**, gõ `bash` **+ một dấu cách**.
+2. Mở Finder, tìm file **`build-and-run-macos.sh`** trong thư mục giải nén → **kéo thả file đó vào cửa sổ Terminal** (Terminal tự điền đầy đủ đường dẫn).
+3. Nhấn **Enter** → đợi lần đầu ~10–20 phút. Xem [mục 5](#5-khi-làm-đúng-bạn-sẽ-thấy-gì).
+
+---
+
+## 4. Chạy REVA
+
+Tóm lại, sau khi cài đủ 2 phần mềm trên, bạn chỉ cần **một thao duy nhất mỗi lần muốn dùng REVA**:
+
+| Hệ điều hành | Cách chạy |
 |---|---|
-| **Windows** | nháy đúp `build-and-run-windows.bat` (hoặc chạy nó trong CMD/PowerShell) |
-| **macOS** | `bash build-and-run-macos.sh` |
-| **Linux** | `bash build-and-run-linux.sh` |
+| **Windows** | Nháy đúp `build-and-run-windows.bat` trong thư mục `en-vi-align-rust` |
+| **macOS** | Terminal → gõ `bash ` → kéo file `build-and-run-macos.sh` vào → Enter |
 
-File lệnh tự làm 5 việc: cài Rust nếu thiếu → biên dịch app → tạo môi trường Python riêng (`labse-venv`)
-+ cài `sentence-transformers` (**chỉ khi chưa có** — không nâng cấp, để không kéo PyTorch mới mỗi lần) →
-kiểm tra model LaBSE trong `labse/model/` (**đã có thì bỏ qua ngay, không cần mạng**; chưa có mới tải ~2 GB
-**đúng 1 lần** rồi lưu vào đó) → khởi động LaBSE + app và mở sẵn `http://localhost:3000`.
-Chạy lại lần sau thì gần như tức thì (bỏ qua phần đã cài).
-Nhấn **Ctrl+C** để dừng. Không muốn LaBSE? Vẫn chạy bình thường — xem bên dưới.
+File lệnh này TỰ LÀM 5 việc: biên dịch app → chuẩn bị Python/LaBSE (bỏ qua phần đã có) → khởi động LaBSE → chạy app → mở sẵn trình duyệt tại **http://localhost:3000**.
 
-## LaBSE — mấu chốt để ghép chính xác
+> **"Terminal" là gì?** — Terminal (Windows gọi là CMD/PowerShell) là cửa sổ gõ lệnh chữ đen. Bạn không cần biết lập trình — chỉ cần dán đúng lệnh được chỉ và bấm Enter. Đừng đóng cửa sổ này khi đang dùng REVA (đó là app đang chạy đó!). Tắt app = trở lại cửa sổ, nhấn **Ctrl+C** (giữ phím Ctrl, gõ chữ C).
 
-LaBSE là model nhúng câu đa ngôn ngữ của Google (chạy cục bộ qua `sentence-transformers`).
-Bộ từ vựng giỏi bài báo giàu số/tên riêng; LaBSE giỏi **mọi văn bản** vì "hiểu nghĩa" câu.
+---
 
-- **Khi có LaBSE**: điểm mỗi cặp = `max(điểm_từ_vựng, 0.4×điểm_từ_vựng + 0.6×tin_cậy_LaBSE)` với
-  `tin_cậy = (cosine − 0.50) / 0.30` kẹp vào [0,1] — đo thực tế: cặp dịch đúng 1:1 có cosine ~0.85–0.92,
-  cặp "lược/gộp đoạn" ~0.5–0.65, cặp cùng chủ đề nhưng không dịch ~0.35–0.55.
-  Nguyên tắc **"chỉ nâng, không hạ"**: điểm từ vựng là sàn — bài dịch lược bớt vẫn ghép được như thường,
-  còn cặp dịch đúng được nâng lên "Tự khớp" và DP gán đúng cặp nhờ khoảng cách cosine rõ rệt.
-- **Khi không có LaBSE** (không cài Python, không mạng…): app tự fallback về thuần từ vựng —
-  huy hiệu trên đầu báo "Chỉ từ vựng — chưa bật LaBSE" (chấm hổ phách). Ghép vẫn chạy 100%;
-  nút **Rescan** cũng vẫn chấm được bằng từ vựng (giao diện báo rõ "từ vựng").
-- Giao thức: `labse/labse_service.py` lắng nghe tại `127.0.0.1:3031`;
-  `GET /health`, `POST /embed {"texts":[…]}` → `{"embeddings":[[…],…]}` (đã chuẩn hoá L2).
-  Đổi địa chỉ bằng biến môi trường `REVA_LABSE_URL` (tên cũ `CANH_DOI_LABSE_URL` vẫn được chấp nhận).
-- **Không bao giờ tải lại model (bản 2.6)**: model nằm trong **`labse/model/`** (do `labse/download_model.py`
-  tạo đúng 1 lần; đổi vị trí bằng biến `REVA_LABSE_MODEL_DIR`). Dịch vụ nạp từ thư mục này ở **chế độ
-  offline** (`HF_HUB_OFFLINE=1`) — không phụ thuộc cache HuggingFace, không chạm mạng, cập nhật
-  mã nguồn/build lại không ảnh hưởng gì. Xoá `~/.cache/huggingface` cũng không mất model.
-- Mỗi phiên lưu kèm `engine` (`lexical` / `lexical+labse`) — mở lại phiên cũ vẫn thấy đúng động cơ đã dùng.
+## 5. Khi làm đúng bạn sẽ thấy gì?
 
-**Lưu ý Linux không có card NVIDIA**: `pip install sentence-transformers` kéo bản PyTorch kèm CUDA (~2.5 GB).
-Muốn gọn hơn, chạy trước `labse-venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu`
-rồi chạy lại script — LaBSE chạy CPU được, chỉ chậm hơn.
+### Cửa sổ Terminal trông như thế này
 
-## Build từ nguồn (thủ công, không dùng script)
+**Windows** (`build-and-run-windows.bat`):
 
-Chỉ Rust là bắt buộc ([rustup](https://rustup.rs) 1.75+):
+![Terminal Windows — chạy đúng](docs/images/terminal-windows.png)
+
+**macOS** (`build-and-run-macos.sh`):
+
+![Terminal macOS — chạy đúng](docs/images/terminal-macos.png)
+
+*(Ảnh minh hoạ — thời gian biên dịch và đường dẫn trên máy bạn sẽ khác nhau.)*
+
+Dấu hiệu **làm đúng**: thấy dòng `[reva-tool] chạy tại http://localhost:3000` và cửa sổ **không tự đóng** — nó cứ đứng yên như thế là app đang chạy. Trình duyệt sẽ tự mở; nếu không thì tự mở `http://localhost:3000`.
+
+### Trình duyệt mở ra giao diện REVA
+
+Đây là màn hình chính sau khi bấm nút **📄 Bài mẫu** rồi **⚡ Ghép đoạn** (mỗi hàng = một cặp Anh–Việt đã ghép):
+
+![REVA — kết quả ghép](docs/images/reva-ui.png)
+
+- 🟩 hàng **xanh** = khớp (tự khớp hoặc bạn đã bấm ✓) — 🟨 hàng **vàng** = cần soát — 🩷 hàng **hồng** = không khớp (thiếu một phía).
+- Mỗi đoạn là **một khối 🧩**: kéo sang hàng khác, đổi thứ tự, tách riêng; Ctrl+Z hoàn tác.
+- Xuất file bằng nút **⬇ Xuất file** — chọn **Excel (.xlsx)** để có sẵn màu trong file.
+
+REVA cũng chạy tốt trên điện thoại/máy tính bảng nếu mở `http://localhost:3000` trên chính máy đó:
+
+![REVA trên mobile](docs/images/reva-ui-mobile.png)
+
+### Muốn kiểm tra máy mình cài đúng chưa?
+
+Bấm nút **🧪 Tự kiểm tra** trên góc phải — nếu mọi bài đều ✓ (35/35) là REVA chạy hoàn hảo trên máy bạn:
+
+![REVA — tự kiểm tra 35/35](docs/images/reva-selftest.png)
+
+---
+
+## 6. Chạy lại lần sau (rất nhanh)
+
+Lần **đầu** mất ~10–20 phút (biên dịch + tải model 1 lần duy nhất). Từ lần **thứ hai** trở đi chỉ **~30 giây**: chạy lại đúng file lệnh đó — nó nhận ra mọi thứ đã cài sẵn và bỏ qua.
+
+## Cập nhật lên bản REVA mới
+
+1. Tải zip bản mới từ [Releases](https://github.com/longme179/Rust-Eng-Vie-Aligner-tool/releases) → giải nén **sang thư mục mới**.
+2. Chép 2 thư mục sau từ thư mục CŨ sang thư mục MỚI (để **không phải tải lại ~4 GB**):
+   - `labse/model/` — model LaBSE đã tải;
+   - `labse-venv/` — môi trường Python đã cài (Windows: thư mục `labse-venv`).
+3. Chạy file lệnh trong thư mục mới như bình thường.
+
+---
+
+## 7. Câu hỏi thường gặp
+
+**❓ Không muốn cài Python / máy yếu / thiếu chỗ trống — vẫn dùng được không?**
+Được. Sau khi chạy `build-and-run-*.bat|sh` ít nhất 1 lần (để app được biên dịch), nếu script dừng ở bước Python, bạn vẫn chạy được app không LaBSE:
+- Windows: mở CMD trong thư mục `en-vi-align-rust` rồi gõ `target\release\reva-tool.exe`
+- macOS: trong Terminal gõ `./target/release/reva-tool`
+App báo *"Chỉ từ vựng — chưa bật LaBSE"* — ghép vẫn chạy 100%, chỉ kém chính xác hơn với văn bản ít số liệu/tên riêng.
+
+**❓ Văn bản của tôi có bị gửi lên mạng không?**
+Không. REVA chạy hoàn toàn trên máy bạn. Mạng chỉ được dùng khi: (1) lần đầu cài/tải model, (2) khi bạn chủ động dùng tính năng "⬇ Tải" từ một URL bài viết.
+
+**❓ Lần đầu chạy lâu cỡ nào, cần bao nhiêu GB?**
+Lần đầu ~10–20 phút tuỳ mạng (biên dịch Rust 2–5 phút + tải ~4 GB các gói/model). Từ lần 2: ~30 giây. Tổng dung lượng sau khi cài hết: ~6 GB (Windows ~12 GB vì kèm Visual Studio Build Tools).
+
+**❓ Cửa sổ đen tắt ngay / báo lỗi?**
+Chụp màn hình lỗi lại rồi xem: thường là (1) chưa cài Rust — cài rồi **chưa mở cửa sổ mới** (phải mở CMD/Terminal MỚI sau khi cài Rust); (2) Windows chưa có Visual Studio C++ Build Tools (xem Bước 1); (3) thiếu chỗ trống đĩa (~6 GB).
+
+**❓ Nút nào để dừng REVA?**
+Về cửa sổ Terminal đang chạy app, nhấn **Ctrl+C** (giữ Ctrl, gõ C). Windows: cửa sổ LaBSE thu nhỏ ở thanh tác vụ cũng nên đóng nếu muốn dừng hẳn.
+
+**❓ "Add python.exe to PATH" tôi quên tick?**
+Gỡ Python (Settings → Apps) rồi cài lại, tick đúng ô đó lần này.
+
+**❓ File Excel .xlsx xuất ra mở lên có màu thật không?**
+Có — mỗi hàng được tô sẵn màu nền xanh/vàng/hồng nhạt kèm cột "Điểm (%)" và "Trạng thái". CSV/TSV là định dạng văn bản thuần nên không mang màu được — muốn màu, chọn Excel (.xlsx).
+
+**❓ REVA có dịch hộ tôi không?**
+Không. REVA chỉ *ghép & sắp xếp* các đoạn đã có sẵn của hai văn bản. Bạn vẫn cần bản dịch (tự dịch hoặc từ dịch giả/máy dịch).
+
+**❓ LaBSE là gì, tại sao nên cài?**
+LaBSE là model hiểu nghĩa câu của Google chạy ngay trên máy bạn. Bộ từ vựng sẵn có của REVA giỏi với bài báo giàu số liệu/tên riêng; LaBSE giỏi mọi loại văn bản vì "hiểu nghĩa" — nhờ vậy các cặp dịch thoáng, lược bớt đoạn vẫn ghép đúng.
+
+---
+
+## 8. Tính năng chính
+
+- **Ghép đoạn song ngữ** bằng điểm tương đồng (từ điển Anh–Việt ~500 mục, số liệu, tên riêng, vị trí tương đối) + quy hoạch động — không cần GPU.
+- **LaBSE tuỳ chọn**: hoà trộn điểm từ vựng với cosine LaBSE (nguyên tắc *chỉ nâng không hạ*) → chính xác hơn hẳn.
+- **Mô hình khối kéo–thả tự do**: mỗi đoạn là một khối; kéo ghép/tách/đổi thứ tự; **Ctrl+Z hoàn tác 40 bước**; `↻ Rescan LaBSE` chấm lại điểm từng hàng.
+- **4 trạng thái chuẩn**: Tự khớp · Cần soát · Không khớp · Đã xác nhận — hiển thị bằng màu trong giao diện lẫn file xuất.
+- **Xuất 7 định dạng**: Excel `.xlsx` (tự tô màu từng hàng), CSV, TSV, Moses, JSON, HTML (bảng có màu), XLIFF 1.2 (cho công cụ CAT). Đoạn thiếu một phía ghi đúng chữ `none`.
+- **Tải bài từ URL**: dán link bài báo tiếng Anh/tiếng Việt — REVA tự trích nội dung, lọc sạch menu/quảng cáo/caption ảnh.
+- **Phiên làm việc độc lập**: ghép bao nhiêu bài liên tiếp không lẫn dữ liệu; tự lưu vào `data/sessions/`, mở lại được.
+- **35 bài tự kiểm** nội bộ (hồi quy lỗi từng gặp + tích hợp LaBSE + Excel màu) — bấm 🧪 Tự kiểm tra bất cứ lúc nào.
+
+Chi tiết thuật toán, API HTTP, cấu trúc mã nguồn, bất biến kiểm chứng và lịch sử các bản: xem **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.
+
+---
+
+## 9. Cho người phát triển
+
+REVA là một binary Rust duy nhất (axum + tokio) nhúng sẵn giao diện, kèm dịch vụ LaBSE Python tuỳ chọn tại `127.0.0.1:3031`.
 
 ```bash
-cd en-vi-align-rust
-cargo run --release          # build rồi chạy tại http://localhost:3000
+cargo run --release        # build + chạy tại http://localhost:3000
+cargo test                 # 35 bài selftest
 ```
 
-Đổi cổng:
-
-```bash
-PORT=1709 cargo run --release        # Linux/macOS
-set PORT=1709 && cargo run --release # Windows (cmd)
-```
-
-Thư mục dữ liệu (session) mặc định nằm cạnh binary (`data/`); ghi đè bằng biến môi trường
-`REVA_DATA_DIR` (tên cũ `CANH_DOI_DATA_DIR` vẫn được chấp nhận).
-
-Binary sau khi build nằm ở `target/release/reva-tool` (Linux/macOS)
-hoặc `target/release/reva-tool.exe` (Windows) — copy đi đâu cũng chạy được, không kèm gì thêm.
-Muốn thêm LaBSE thì chạy riêng dịch vụ:
-
-```bash
-python3 -m venv labse-venv && labse-venv/bin/pip install sentence-transformers
-labse-venv/bin/python labse/labse_service.py    # giữ nguyên cửa sổ này, mở app ở cửa sổ khác
-```
-
-## Cấu trúc
-
-```
-en-vi-align-rust/
-├── build-and-run-windows.bat  # file lệnh build+chạy cho Windows
-├── build-and-run-macos.sh     # file lệnh build+chạy cho macOS
-├── build-and-run-linux.sh     # file lệnh build+chạy cho Linux
-├── Cargo.toml                 # khai báo package + dependencies (axum, tokio, serde, ureq…) — binary reva-tool
-├── static/index.html          # giao diện tiếng Việt (nhúng sẵn vào binary khi build)
-├── labse/                     # dịch vụ nhúng LaBSE (Python, tuỳ chọn)
-│   ├── labse_service.py       #   lắng nghe 127.0.0.1:3031 — /health, /embed (ưu tiên nạp offline từ labse/model)
-│   ├── download_model.py      #   đảm bảo model nằm trong labse/model/ — tải 1 LẦN duy nhất, có rồi thì thoát ngay
-│   ├── wait_health.py         #   chờ service sẵn sàng (script Windows)
-│   └── start-labse-windows.bat#   khởi động service kèm log (script Windows)
-├── src/
-│   ├── main.rs                # server axum + toàn bộ API + banner
-│   ├── aligner.rs             # bộ ghép: chấm điểm + DP đơn điệu + hoà trộn LaBSE + rescore_pair (bản 2.5)
-│   ├── embedder.rs            # LaBSE: HTTP client + cosine + pipeline /api/align & selftest + pair_cosine (rescan)
-│   ├── session.rs             # phiên: tạo / mở / cập nhật / GỘP HÀNG / TÁCH / move_block / UNDO-REDO / rescan_row / NHẢ PHIÊN
-│   ├── exporter.rs            # xuất TSV / Moses / JSON / CSV / HTML / XLIFF / Excel .xlsx (tô màu ô) với chữ `none` nguyên văn (hỗ trợ nhiều khối/hàng)
-│   ├── fetcher.rs             # tải URL + trích HTML
-│   ├── selftest.rs            # 35 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối + xlsx màu)
-│   ├── lexicon.rs             # từ điển Anh→Việt + danh sách từ phổ biến
-│   └── fold.rs                # bỏ dấu tiếng Việt ("Hà Nội" → "ha noi"), chuẩn hoá số
-└── data/sessions/             # (tạo lúc chạy) nơi lưu các phiên
-```
-
-## API (tất cả trả JSON `{ok:true,data:…}` hoặc `{ok:false,error:…}`)
-
-| Phương thức | Đường dẫn | Chức năng |
-|---|---|---|
-| POST | `/api/align` | Ghép 2 văn bản → tạo PHIÊN MỚI (tự dùng LaBSE nếu đang chạy) |
-| GET | `/api/sessions` | Danh sách phiên |
-| GET | `/api/sessions/{id}` | Chi tiết 1 phiên (kèm `canUndo` / `canRedo`) |
-| DELETE | `/api/sessions/{id}` | **Nhả phiên** |
-| DELETE | `/api/sessions` | Nhả tất cả |
-| PATCH | `/api/sessions/{id}/rows/{index}` | Đổi trạng thái 1 hàng (bỏ ghép sẽ tách cặp) |
-| POST | `/api/sessions/{id}/rows/{index}/merge` | Gộp hàng kế tiếp vào hàng này (API bản 2.4, vẫn giữ) |
-| POST | `/api/sessions/{id}/rows/{index}/rescan` | **Rescan — chấm lại điểm hàng** (LaBSE nếu chạy + sàn từ vựng) · bản 2.5 |
-| POST | `/api/sessions/{id}/blocks/move` | **Di chuyển khối** `{side, fromRow, fromPos, toRow, toPos, afterRow}` — `toRow: null` = tách thành hàng riêng · bản 2.5 |
-| POST | `/api/sessions/{id}/undo` | **Hoàn tác** bước gần nhất (40 bước) · bản 2.5 |
-| POST | `/api/sessions/{id}/redo` | **Làm lại** bước vừa hoàn tác · bản 2.5 |
-| POST | `/api/export` | Xuất file (`tsv` / `moses` / `json` / `csv` / `html` / `xliff`) |
-| POST | `/api/fetch-url` | Tải bài từ URL |
-| GET | `/api/selftest` | Chạy 30 bài tự kiểm |
-| GET | `/api/model-status` | Trạng thái động cơ + LaBSE (`labse.ready`, `labse.url`) |
-| GET | `/api/health` | Kiểm tra sống |
-
-## 5 bất biến (được kiểm tra tự động)
-
-1. Mỗi đoạn tiếng Anh được dùng **đúng 1 lần** trong kết quả (kể cả sau kéo–thả / gộp / tách).
-2. Mỗi đoạn tiếng Việt được dùng **đúng 1 lần**.
-3. Ghép **đơn điệu** — không giao nhau, giữ thứ tự bài gốc. *(Bản 2.5: khi người dùng CÓ CHỦ ĐÍCH kéo–thả đổi thứ tự
-   khối giữa các hàng, phiên được đánh dấu `reordered` và duy nhất bất biến này được tha thứ lúc xuất — mọi bất biến
-   khác vẫn kiểm gắt.)*
-4. Trạng thái chỉ thuộc 4 giá trị chuẩn; `unmatched` ⟺ hàng thiếu đúng một phía
-   (`human_confirmed` một phía = người dùng xác nhận "không có bản dịch").
-5. Khi xuất, phía thiếu ghi đúng chữ **`none`** (nguyên văn) và **không bỏ sót đoạn nào**.
-
-(LaBSE chỉ đổi **điểm gốc** trước khi vào DP — 5 bất biến và toàn bộ quy ước trạng thái giữ nguyên, được kiểm lại
-trong selftest 30 bài kể cả khi có LaBSE. Rescan bản 2.5 dùng lại đúng lõi chấm điểm của bộ ghép — không thêm thuật toán mới.)
-
-## Sửa lỗi so với các bản trước
-
-| Lỗi | Nguyên nhân | Cách sửa |
-|---|---|---|
-| `panic: index out of bounds: the len is 61 but the index is 18446744073709551615` (bản 1.x) | Sentinel `-1` cast sang `usize` rồi dùng làm chỉ số mảng | Toàn bộ aligner viết lại với `Option<usize>`, ma trận phẳng, backtrack có nhánh riêng cho biên — **không còn phép trừ chỉ số nào có thể tràn**; kèm bài hồi quy `07. [REGRESSION] panic index 61` |
-| Ghép bài 1 xuất tốt, bài 2 "Không ghép được." (bản 1.x) | Trạng thái rò rỉ giữa các lần ghép (panic trên worker thread làm chết request) | Mỗi lần ghép là **phiên mới độc lập**, bộ ghép **vô trạng thái**, panic được `catch_unwind` bắt lại trả lỗi JSON — server không bao giờ chết; kèm bài hồi quy `08. [REGRESSION]` |
-| **Tải 2 bài từ URL xong, nút "⚡ Ghép đoạn" bị mờ, không bấm được** (bản 2.0) | Trong `fetchUrl()`, hàm đếm đoạn chạy lúc trạng thái "đang bận" vẫn bật → nút bị khoá; sau đó không còn đường dẫn nào mở khoá lại | Tách hàm `syncAlignBtn()` làm **một nguồn sự thật duy nhất** cho trạng thái nút; mọi vòng "bận" (tải URL, ghép…) kết thúc đều tự đồng bộ lại; kèm bài hồi quy `18. [REGRESSION]` và lọc chrom giao diện khi tải URL |
-| **Bảng kết quả nhiều hàng → mỗi hàng bị nén cực hẹp (~12–16px), chữ bị cắt mất** (bản 2.1) | Khung `.rows` là flex-cột có `max-height` — các hàng mặc định `flex-shrink:1` nên bị **nén lại** cho vừa khung thay vì để khung cuộn | `.rows > *{flex:none}` — hàng giữ chiều cao tự nhiên, khung cuộn dọc như dự kiến; kèm chỉnh bố cục mobile (thanh giữa trải nguyên hàng, không còn rơi vào cột 28px) |
-| **Kéo nhầm hàng không hoàn tác được** (bản 2.4 — thao tác gộp hàng là một chiều) | Gộp hàng cắt xé cấu trúc, không có ngăn xếp lịch sử | **Bản 2.5**: mô hình khối (mỗi đoạn = 1 khối kéo tự do) + **ngăn xếp hoàn tác 40 bước** (Ctrl+Z) bao trùm mọi thao tác; kéo nhầm chỉ là kéo lại — hoặc 1 phím Ctrl+Z |
+Đổi cổng: `PORT=1709 cargo run --release`. Đổi thư mục dữ liệu: `REVA_DATA_DIR=...`. Xem đầy đủ API + tài liệu kỹ thuật tại **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.
 
 ## Giấy phép
 

@@ -87,7 +87,7 @@ pub fn fetch(url: &str) -> Result<FetchedPage, String> {
         .get(url)
         .set(
             "User-Agent",
-            "Mozilla/5.0 (compatible; reva-tool/2.7; +local-aligner)",
+            "Mozilla/5.0 (compatible; reva-tool/2.7.1; +local-aligner)",
         )
         .set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
         .set("Accept-Language", "en,vi;q=0.9")

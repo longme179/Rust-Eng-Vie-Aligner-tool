@@ -1,6 +1,6 @@
 [package]
 name = "en-vi-align-rust"
-version = "2.7.0"
+version = "2.7.1"
 edition = "2021"
 description = "REVA tool — ghép & sắp đoạn văn bản Anh–Việt (tiền thân: Cánh đôi Anh–Việt), chạy 100% cục bộ"
 license = "MIT"
