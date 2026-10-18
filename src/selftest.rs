@@ -2712,7 +2712,139 @@ fn t_fetch_ssrf_guard() -> Result<(), String> {
     Ok(())
 }
 
-/// Chạy toàn bộ bộ kiểm — mỗi bài trong thread riêng (panic = FAIL, không sập tiến trình).
+/// 40. [BẢN 2.8] Xuất TMX 1.2 — bộ nhớ dịch cho CAT tool (OmegaT/Trados…):
+/// header đủ thuộc tính bắt buộc (creationtool, segtype, srclang, datatype,
+/// o-tmf, adminlang, creationdate dạng YYYYMMDDTHHMMSSZ), mỗi hàng một <tu> với
+/// 2 <tuv xml:lang>, trạng thái/điểm trong <prop>, phía thiếu ghi đúng chữ `none`,
+/// XML escape đúng, thẻ cân nhau.
+fn t_export_tmx() -> Result<(), String> {
+    if ExportFormat::parse("tmx") != Some(ExportFormat::Tmx) {
+        return Err("parse phải nhận 'tmx'".into());
+    }
+    if ExportFormat::Tmx.ext() != "tmx" || ExportFormat::Tmx.is_binary() {
+        return Err("ext/is_binary của Tmx sai".into());
+    }
+    if !ExportFormat::Tmx.mime().contains("tmx") {
+        return Err("mime của Tmx phải nhắc tmx".into());
+    }
+    let en0 = "Hanoi hosted the summit & signed deals with 32 countries.";
+    let vi0 = "Hà Nội tổ chức hội nghị và ký kết với 32 quốc gia.";
+    let en1 = "Row without Vietnamese translation stays unmatched.";
+    let rows = vec![
+        Row {
+            index: 0,
+            en_index: Some(0),
+            vi_index: Some(0),
+            en: Some(en0.into()),
+            vi: Some(vi0.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::AutoMatched,
+            score: Some(0.85),
+        },
+        Row {
+            index: 1,
+            en_index: Some(1),
+            vi_index: None,
+            en: Some(en1.into()),
+            vi: None,
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::Unmatched,
+            score: None,
+        },
+    ];
+    let session = Session {
+        id: "tmx-test".into(),
+        title: "tmx test".into(),
+        created_at: 1,
+        updated_at: 1760000000000, // cố định để kiểm creationdate
+        english: vec![en0.into(), en1.into()],
+        vietnamese: vec![vi0.into()],
+        rows,
+        options: AlignOptions {
+            auto_threshold: 0.30,
+        },
+        engine: "lexical".into(),
+        reordered: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+    };
+    let r = export_session(&session, ExportFormat::Tmx)?;
+    if !r.filename.ends_with(".tmx") {
+        return Err(format!("tên file phải .tmx, được {}", r.filename));
+    }
+    if r.rows != 2 || r.none_count != 1 {
+        return Err(format!(
+            "rows/none phải 2/1, được {}/{}",
+            r.rows, r.none_count
+        ));
+    }
+    let tmx = r.content;
+    // header TMX 1.2 với các thuộc tính bắt buộc
+    for attr in [
+        "creationtool=\"reva-tool\"",
+        "segtype=\"paragraph\"",
+        "srclang=\"en\"",
+        "datatype=\"plaintext\"",
+        "o-tmf=\"reva-aligned\"",
+        "adminlang=\"en\"",
+    ] {
+        if !tmx.contains(attr) {
+            return Err(format!("header TMX thiếu {}", attr));
+        }
+    }
+    // creationdate dạng YYYYMMDDTHHMMSSZ (14 chữ số + T + Z)
+    let cd = tmx
+        .split("creationdate=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .unwrap_or("");
+    if cd.len() != 16
+        || !cd.starts_with(|c: char| c.is_ascii_digit())
+        || !cd.contains('T')
+        || !cd.ends_with('Z')
+    {
+        return Err(format!("creationdate phải YYYYMMDDTHHMMSSZ, được {:?}", cd));
+    }
+    // 2 tu, mỗi tu 2 tuv; xml:lang en/vi đủ
+    if tmx.matches("<tu ").count() != 2 {
+        return Err("phải có đúng 2 <tu>".into());
+    }
+    if tmx.matches("<tuv xml:lang=\"en\">").count() != 2
+        || tmx.matches("<tuv xml:lang=\"vi\">").count() != 2
+    {
+        return Err("mỗi tu phải có 1 tuv en + 1 tuv vi".into());
+    }
+    // trạng thái + điểm trong prop
+    if !tmx.contains("<prop type=\"x-status\">auto_matched</prop>") {
+        return Err("thiếu prop x-status".into());
+    }
+    if !tmx.contains("<prop type=\"x-score\">0.850</prop>") {
+        return Err("thiếu prop x-score đúng định dạng".into());
+    }
+    // phía thiếu ghi đúng chữ none trong <seg>
+    if tmx.matches("<seg>none</seg>").count() != 1 {
+        return Err("phía thiếu phải ghi đúng chữ none trong <seg>".into());
+    }
+    // XML escape: '&' trong en0 phải thành &amp;
+    if !tmx.contains("summit &amp; signed") {
+        return Err("TMX phải escape '&' thành &amp;".into());
+    }
+    // thẻ cân nhau + XML khai báo đúng chỗ
+    if tmx.matches('<').count() != tmx.matches('>').count() {
+        return Err("số dấu < và > không cân — nghi escape hỏng".into());
+    }
+    if !tmx.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>") {
+        return Err("thiếu khai báo XML".into());
+    }
+    // tuid phải theo id phiên + số thứ tự
+    if !tmx.contains("tuid=\"tmx-test-1\"") || !tmx.contains("tuid=\"tmx-test-2\"") {
+        return Err("tuid phải dạng <id phiên>-<số thứ tự>".into());
+    }
+    Ok(())
+}
+
 pub fn run_all() -> Vec<TestResult> {
     let tests: Vec<(&str, fn() -> Result<(), String>)> = vec![
         ("01. tách đoạn (dòng trống / dòng đơn / CRLF)", t_split_paragraphs),
@@ -2754,6 +2886,7 @@ pub fn run_all() -> Vec<TestResult> {
         ("37. [AUDIT 2026-10-18] xlsx ghi CHUỖI không phải công thức (không có <f>)", t_export_xlsx_no_formula),
         ("38. [AUDIT 2026-10-18] loại ký tự điều khiển khi xuất (XLIFF/HTML hợp lệ)", t_export_control_chars),
         ("39. [AUDIT 2026-10-18] chặn SSRF (địa chỉ nội bộ) + phân giải redirect", t_fetch_ssrf_guard),
+        ("40. [BẢN 2.8] xuất TMX 1.2 (bộ nhớ dịch cho CAT: header đủ, tu/tuv/prop, none nguyên văn, escape)", t_export_tmx),
     ];
 
     let mut results = Vec::with_capacity(tests.len());
