@@ -680,6 +680,62 @@ function refreshCounts(){
   syncAlignBtn();
 }
 
+/* ================= BẢN 2.8 — kéo–thả file .txt vào ô nhập ================= */
+/* Đọc file cục bộ bằng FileReader (100% trên máy — không upload đi đâu).
+   Thả vào ô nào thì điền vào ô đó; thả 2 file cùng lúc → file 1 vào ô Anh,
+   file 2 vào ô Việt (gọi ý "bản gốc + bản dịch" tiện gửi từ Finder/Explorer). */
+function wireFileDrop(textId, cardSel, label){
+  const ta = $(textId);
+  const card = document.querySelector(cardSel);
+  if (!ta || !card) return;
+  card.addEventListener("dragover", (ev) => {
+    ev.preventDefault();
+    card.style.outline = "2px dashed var(--teal)";
+    card.style.outlineOffset = "-4px";
+  });
+  card.addEventListener("dragleave", () => {
+    card.style.outline = "";
+    card.style.outlineOffset = "";
+  });
+  card.addEventListener("drop", async (ev) => {
+    ev.preventDefault();
+    card.style.outline = "";
+    card.style.outlineOffset = "";
+    const files = [...(ev.dataTransfer?.files || [])].filter(f => f.size > 0);
+    if (!files.length) return;
+    // chặn file quá to: REVA chấm tối đa 800 đoạn — file >4 MB gần như chắc chắn
+    // là nhầm file (PDF/ZIP/ảnh đổi đuôi .txt), và nạp chuỗi ấy làm nặng trình duyệt.
+    const MAX_TXT_BYTES = 4 * 1024 * 1024;
+    const tooBig = files.find(f => f.size > MAX_TXT_BYTES);
+    if (tooBig){
+      toast(`File ${tooBig.name} lớn hơn 4 MB — REVA chỉ nhận file văn bản .txt nhỏ. Nếu đây là sách dài, hãy tách thành từng phần rồi nạp từng phần.`, "warn", 8000);
+      return;
+    }
+    const readFile = (f) => new Promise((res) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result || ""));
+      r.onerror = () => res("");
+      r.readAsText(f, "utf-8");
+    });
+    const first = await readFile(files[0]);
+    if (!first.trim()){ toast(`File ${files[0].name} đọc được nhưng rỗng hoặc không phải văn bản UTF-8.`, "warn", 5200); return; }
+    ta.value = first;
+    if (files.length > 1){
+      const second = await readFile(files[1]);
+      if (second.trim()){
+        const other = textId === "enText" ? $("viText") : $("enText");
+        other.value = second;
+        toast(`Đã nạp ${files[0].name} → ${label} và ${files[1].name} → ô còn lại (2 file .txt).`, "ok", 4600);
+      } else {
+        toast(`Đã nạp ${files[0].name} → ${label}.`, "ok", 3200);
+      }
+    } else {
+      toast(`Đã nạp ${files[0].name} → ${label} (${first.length.toLocaleString("vi-VN")} ký tự, đọc cục bộ).`, "ok", 4200);
+    }
+    refreshCounts();
+  });
+}
+
 /* ================= Ghép ================= */
 async function doAlign(){
   if (S.busy) return;
@@ -1409,6 +1465,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnRescanAll").addEventListener("click", rescanAll);
 
   $("enText").addEventListener("input", refreshCounts);
+  // BẢN 2.8 — kéo–thả file .txt vào thẻ ô nhập (đọc cục bộ, không upload)
+  wireFileDrop("enText", ".card.lang.en", "ô tiếng Anh");
+  wireFileDrop("viText", ".card.lang.vi", "ô tiếng Việt");
   $("viText").addEventListener("input", refreshCounts);
   $("enClear").addEventListener("click", () => { $("enText").value = ""; refreshCounts(); });
   $("viClear").addEventListener("click", () => { $("viText").value = ""; refreshCounts(); });
