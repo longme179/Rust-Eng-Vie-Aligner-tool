@@ -36,6 +36,8 @@ pub enum ExportFormat {
     Xliff,
     /// BẢN 2.7 — Excel thật (.xlsx) tô màu ô theo trạng thái hàng.
     Xlsx,
+    /// BẢN 2.8 — TMX 1.2 (bộ nhớ dịch, nhập trực tiếp vào CAT tool: OmegaT, Trados…).
+    Tmx,
 }
 
 impl ExportFormat {
@@ -48,6 +50,7 @@ impl ExportFormat {
             "html" | "htm" => Some(ExportFormat::Html),
             "xliff" | "xlf" => Some(ExportFormat::Xliff),
             "xlsx" | "excel" => Some(ExportFormat::Xlsx),
+            "tmx" => Some(ExportFormat::Tmx),
             _ => None,
         }
     }
@@ -61,6 +64,7 @@ impl ExportFormat {
             ExportFormat::Html => "html",
             ExportFormat::Xliff => "xlf",
             ExportFormat::Xlsx => "xlsx",
+            ExportFormat::Tmx => "tmx",
         }
     }
 
@@ -75,6 +79,7 @@ impl ExportFormat {
             ExportFormat::Xlsx => {
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             }
+            ExportFormat::Tmx => "application/x-tmx+xml; charset=utf-8",
         }
     }
 
@@ -619,6 +624,37 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
 
             bytes = Some(wb.save_to_buffer().map_err(xerr)?);
         }
+        ExportFormat::Tmx => {
+            // BẢN 2.8 — TMX 1.2 (Translation Memory eXchange): bộ nhớ dịch chuẩn,
+            // nhập trực tiếp vào OmegaT / Trados / CafeTrillian… (xem docs/ROADMAP.md:
+            // bài học từ LF Aligner — TMX là định dạng "ra" mà mọi CAT tool đọc).
+            // Quy ước `none` giữ nguyên: phía thiếu ghi đúng chữ none trong <seg>.
+            // Trạng thái/điểm nằm trong <prop type="x-…"> để CAT tool đọc được nếu muốn.
+            body.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+            body.push_str(&format!(
+                "<tmx version=\"1.2\">\n<header creationtool=\"reva-tool\" creationtoolversion=\"{ver}\" segtype=\"paragraph\" o-tmf=\"reva-aligned\" adminlang=\"en\" srclang=\"en\" datatype=\"plaintext\" creationdate=\"{date}\"/>\n<body>\n",
+                ver = env!("CARGO_PKG_VERSION"),
+                date = tmx_date(session.updated_at),
+            ));
+            for r in &session.rows {
+                let (en, vi, none) = row_cells(r);
+                none_count += none;
+                let score = match r.score {
+                    Some(s) => format!("{:.3}", s),
+                    None => String::new(),
+                };
+                body.push_str(&format!(
+                    " <tu tuid=\"{sid}-{i}\" creationid=\"reva-tool\">\n  <prop type=\"x-status\">{st}</prop>\n  <prop type=\"x-score\">{sc}</prop>\n  <tuv xml:lang=\"en\"><seg>{en}</seg></tuv>\n  <tuv xml:lang=\"vi\"><seg>{vi}</seg></tuv>\n </tu>\n",
+                    sid = xml_escape(&session.id),
+                    i = r.index + 1,
+                    st = r.status.as_str(),
+                    sc = score,
+                    en = xml_escape(&en),
+                    vi = xml_escape(&vi),
+                ));
+            }
+            body.push_str("</body>\n</tmx>\n");
+        }
     }
 
     Ok(ExportResult {
@@ -650,4 +686,12 @@ fn format_time(ms: u64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC", y, m, d, h, mi, s)
+}
+
+/// Ngày giờ dạng TMX (YYYYMMDDTHHMMSSZ) — dùng cho `creationdate` của header TMX 1.2.
+fn tmx_date(ms: u64) -> String {
+    let s = format_time(ms); // "YYYY-MM-DD HH:MM:SS UTC"
+    let date: String = s.chars().take(10).filter(|c| *c != '-').collect();
+    let time: String = s.chars().skip(11).take(8).filter(|c| *c != ':').collect();
+    format!("{}T{}Z", date, time)
 }
