@@ -153,7 +153,7 @@ REVA cũng chạy tốt trên điện thoại/máy tính bảng nếu mở `http
 
 ### Muốn kiểm tra máy mình cài đúng chưa?
 
-Bấm nút **🧪 Tự kiểm tra** trên góc phải — nếu mọi bài đều ✓ (35/35) là REVA chạy hoàn hảo trên máy bạn:
+Bấm nút **🧪 Tự kiểm tra** trên góc phải — nếu mọi bài đều ✓ (41/41) là REVA chạy hoàn hảo trên máy bạn:
 
 ![REVA — tự kiểm tra 35/35](docs/images/reva-selftest.png)
 
@@ -211,12 +211,14 @@ LaBSE là model hiểu nghĩa câu của Google chạy ngay trên máy bạn. B�
 
 - **Ghép đoạn song ngữ** bằng điểm tương đồng (từ điển Anh–Việt ~500 mục, số liệu, tên riêng, vị trí tương đối) + quy hoạch động — không cần GPU.
 - **LaBSE tuỳ chọn**: hoà trộn điểm từ vựng với cosine LaBSE (nguyên tắc *chỉ nâng không hạ*) → chính xác hơn hẳn.
-- **Mô hình khối kéo–thả tự do**: mỗi đoạn là một khối; kéo ghép/tách/đổi thứ tự; **Ctrl+Z hoàn tác 40 bước**; `↻ Rescan LaBSE` chấm lại điểm từng hàng.
+- **Mô hình khối kéo–thả tự do**: mỗi đoạn là một khối; kéo ghép/tách/đổi thứ tự; **Ctrl+Z hoàn tác 40 bước**; `↻ Rescan LaBSE` chấm lại điểm từng hàng; `↻ Rescan tất cả` chấm lại MỌI hàng một nhấn (hoàn tác cả lô bằng 1 Ctrl+Z).
 - **4 trạng thái chuẩn**: Tự khớp · Cần soát · Không khớp · Đã xác nhận — hiển thị bằng màu trong giao diện lẫn file xuất.
-- **Xuất 7 định dạng**: Excel `.xlsx` (tự tô màu từng hàng), CSV, TSV, Moses, JSON, HTML (bảng có màu), XLIFF 1.2 (cho công cụ CAT). Đoạn thiếu một phía ghi đúng chữ `none`.
-- **Tải bài từ URL**: dán link bài báo tiếng Anh/tiếng Việt — REVA tự trích nội dung, lọc sạch menu/quảng cáo/caption ảnh.
+- **Xuất 8 định dạng**: Excel `.xlsx` (tự tô màu từng hàng), CSV, TSV, Moses, JSON, HTML (bảng có màu), XLIFF 1.2, và **TMX 1.2 — bộ nhớ dịch nhập thẳng vào OmegaT/Trados**. Đoạn thiếu một phía ghi đúng chữ `none`.
+- **Tải bài từ URL**: dán link bài báo tiếng Anh/tiếng Việt — REVA tự trích nội dung, lọc sạch menu/quảng cáo/caption ảnh; **chỉ tải trang công khai** (chặn địa chỉ nội bộ — chống SSRF).
+- **Kéo–thả file .txt**: thả file vào ô tiếng Anh/tiếng Việt là nạp ngay (đọc cục bộ, không upload); thả 2 file cùng lúc vào ô nào cũng được (file 1 → ô đó, file 2 → ô còn lại).
+- **Chạy kín trên máy bạn**: mặc định chỉ mở trên `127.0.0.1` (máy khác trong mạng KHÔNG truy cập được); muốn chia sẻ LAN thì đặt biến `REVA_BIND=0.0.0.0`.
 - **Phiên làm việc độc lập**: ghép bao nhiêu bài liên tiếp không lẫn dữ liệu; tự lưu vào `data/sessions/`, mở lại được.
-- **35 bài tự kiểm** nội bộ (hồi quy lỗi từng gặp + tích hợp LaBSE + Excel màu) — bấm 🧪 Tự kiểm tra bất cứ lúc nào.
+- **41 bài tự kiểm** nội bộ (hồi quy lỗi từng gặp + tích hợp LaBSE + Excel màu + 4 bài audit bảo mật + TMX + rescan toàn bộ) — bấm 🧪 Tự kiểm tra bất cứ lúc nào.
 
 Chi tiết thuật toán, API HTTP, cấu trúc mã nguồn, bất biến kiểm chứng và lịch sử các bản: xem **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.
 
@@ -228,7 +230,7 @@ REVA là một binary Rust duy nhất (axum + tokio) nhúng sẵn giao diện, k
 
 ```bash
 cargo run --release        # build + chạy tại http://localhost:3000
-cargo test                 # 35 bài selftest
+cargo test                 # 41 bài selftest (qua GET /api/selftest)
 ```
 
 Đổi cổng: `PORT=1709 cargo run --release`. Đổi thư mục dữ liệu: `REVA_DATA_DIR=...`. Xem đầy đủ API + tài liệu kỹ thuật tại **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.

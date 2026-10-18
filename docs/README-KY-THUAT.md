@@ -2,7 +2,7 @@
 
 > Tài liệu cho người phát triển / người muốn hiểu sâu. Nếu bạn chỉ muốn **dùng REVA**, xem [README chính](../README.md).
 
-# REVA tool (`reva-tool`) v2.7
+# REVA tool (`reva-tool`) v2.8
 
 > Tiền thân: **Cánh đôi Anh–Việt** (`canh-doi-anh-viet`) — cùng công cụ, đổi tên từ bản 2.5.
 
@@ -16,6 +16,7 @@ giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **10
 
 ## Lịch sử bản chính
 
+- **2.8** — **[AUDIT 2026-10-18]** (xem `docs/AUDIT-LOG.md`): mặc định bind `127.0.0.1` (mở LAN: `REVA_BIND=0.0.0.0`); chống SSRF khi tải URL (chặn IP literal/DNS nội bộ + tự theo redirect ≤5 hop có kiểm an toàn từng hop); CSV/TSV chống chèn công thức (`=` `+` `-` `@` đầu ô thêm `'`); xuất bỏ ký tự điều khiển (XLIFF/HTML luôn hợp lệ). **Tính năng**: xuất **TMX 1.2** (định dạng 8 — bộ nhớ dịch nhập thẳng OmegaT/Trados); **Rescan toàn bộ** (`POST /api/sessions/{id}/rescan-all`, 1 snapshot hoàn tác cho cả lô); kéo–thả file `.txt` vào ô nhập (FileReader cục bộ, chặn >4 MB). Selftest 35→**41**.
 - **2.7** — xuất **Excel `.xlsx` tự tô màu ô theo trạng thái hàng** (xanh `E2EFDA` = khớp + đã xác nhận, vàng `FFF2CC` = cần soát, hồng `FADCE3` = không khớp) bằng `rust_xlsxwriter`: cột STT/Tiếng Anh/Tiếng Việt/Điểm (%)/Trạng thái tiếng Việt, đóng băng dòng đầu, autofilter, chú giải màu dưới bảng; hàng gộp giữ từng đoạn một dòng trong cùng một ô. `ExportResult` thêm `bytes: Option<Vec<u8>>` (xlsx nhị phân), UI chuyển sang `res.blob()`. Selftest 33→35 bài (đọc lại file zip kiểm fill màu TỪNG HÀNG).
 - **2.6** — **bộ trích URL 3 tầng lọc chrom**: (1) class/id tổ tiên chứa từ khoá giao diện (menu, nav, modal, popup, comment, share, related, newslette…), (2) "link farm" — mật độ ký tự nằm trong thẻ `<a>`, (3) quy tắc caption/credit ảnh trong `<figure>/<figcaption>` (bỏ credit ngắn, GIỮ caption dài) + **lưới an toàn 2 lượt** (0 đoạn → nới lỏng). **LaBSE không bao giờ tải lại**: model lưu `labse/model/` (env `REVA_LABSE_MODEL_DIR`), service nạp offline, script build không nâng cấp PyTorch khi đã cài. Flag CLI `reva-tool --extract <file.html>`.
 - **2.5** — **mô hình khối kéo–thả tự do + hoàn tác**: mỗi đoạn văn là một khối; kéo vào ô cùng ngôn ngữ của HÀNG BẤT KỲ, đổi thứ tự tuỳ ý, thả vào thân hàng (hoặc bấm `⇥`) để tách thành hàng riêng. **Ctrl+Z hoàn tác** (40 bước gần nhất) bao trùm mọi thao tác. Nút **`↻ Rescan LaBSE`** chấm lại độ khớp từng hàng sau khi sắp xếp lại. Đổi tên từ Cánh đôi Anh–Việt.
@@ -49,17 +50,18 @@ giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **10
 - **Sửa tay từng cặp**: xác nhận, đánh dấu cần soát, **bỏ ghép (tách cặp thành các hàng `none`)**, trở về tự động.
 - **Kéo–thả gộp hàng liền kề (bản 2.4, API `/merge`)**: gộp hàng kế tiếp vào hàng này — vẫn dùng được qua API;
   trên giao diện bản 2.5 dùng thao tác kéo khối thay thế (linh hoạt hơn và hoàn tác được).
-- **Xuất file 7 định dạng**: TSV (tab), Moses (`văn bản ||| văn bản`), JSON, **CSV (mở được bằng Excel, kèm BOM UTF-8)**, **HTML (bảng đối chiếu tô màu theo trạng thái)**, **XLIFF 1.2 (cho công cụ dịch/CAT)**, và **Excel `.xlsx` (bản 2.7) — tự tô màu ô theo trạng thái**: hàng
-  **xanh nhạt** = khớp (tự khớp + đã xác nhận), **vàng nhạt** = cần soát/khớp một phần, **hồng nhạt** = không khớp; kèm cột STT/Điểm (%)/Trạng thái tiếng Việt, đóng băng dòng đầu, autofilter, chú giải màu dưới bảng (CSV/TSV là văn bản thuần nên không mang màu được — muốn màu trong Excel thì chọn `.xlsx`). Đoạn thiếu một phía ghi đúng
+- **Xuất file 8 định dạng**: TSV (tab), Moses (`văn bản ||| văn bản`), JSON, **CSV (mở được bằng Excel, kèm BOM UTF-8 + chống chèn công thức: ô bắt đầu = + - @ thêm `'`)**, **HTML (bảng đối chiếu tô màu theo trạng thái)**, **XLIFF 1.2 (cho công cụ dịch/CAT)**, **Excel `.xlsx` (bản 2.7 — tự tô màu ô theo trạng thái)** và **TMX 1.2 (bản 2.8 — bộ nhớ dịch nhập thẳng OmegaT/Trados; trạng thái/điểm nằm trong `<prop>`)**. Mọi định dạng ghi ký tự điều khiển đã làm sạch (XLIFF/TMX luôn hợp lệ XML). Đoạn thiếu một phía ghi đúng
   chữ `none` — đúng quy ước bản gốc. **Hàng nhiều khối**: TSV/Moses/XLIFF nối đoạn bằng dấu cách; **CSV và .xlsx giữ
   từng đoạn một dòng trong cùng một ô** (Excel mở vẫn đúng); JSON kèm `enParts`/`viParts`; HTML ghi rõ từng đoạn gốc.
   Xuất theo đúng **thứ tự khối đã sắp** (đổi thứ tự tuỳ ý — duy trì bất biến "mỗi đoạn đúng 1 lần").
 - **Tải bài từ URL** (`<p>` + mục danh sách `<li>` theo thứ tự tài liệu, đã lọc chrom trang): dán link bài tiếng Anh/tiếng Việt,
   công cụ tải và trích đoạn; tự **lược bỏ chrom giao diện trang** (dòng "Published…", "Share this with…", lời mời đăng ký
-  bản tin, địa chỉ bưu chính…) — chỉ giữ nội dung thật của bài.
+  bản tin, địa chỉ bưu chính…) — chỉ giữ nội dung thật của bài. **[AUDIT 2026-10-18] chống SSRF**: chỉ tải máy chủ công khai —
+  chặn IP literal/DNS resolves về nội bộ (loopback, private, link-local, ULA IPv6, CGNAT, 0.0.0.0/8), tự theo redirect
+  ≤5 hop và kiểm an toàn TỪNG hop (xem `docs/AUDIT-LOG.md`).
 - **Tô màu 3 mức theo trạng thái** (bản 2.3): hàng **xanh** = khớp/khớp phần lớn (tự khớp + đã xác nhận), hàng **vàng** = cần soát/khớp một phần, hàng **đỏ** = không khớp hoàn toàn — áp cả trong giao diện lẫn file HTML xuất ra; từ bản 2.7 file **Excel `.xlsx`** cũng tự tô màu từng hàng (xanh nhạt/vàng nhạt/hồng nhạt).
 - **Đúng 3 nút đánh dấu trên mỗi hàng** (bản 2.3): `✓ Khớp` (xanh) · `⚠ Soát` (vàng) · `✕ Không khớp` (đỏ, tách cặp thành các hàng `none`) — bấm xong xuất file là xong.
-- **Tự kiểm tra (selftest)**: 35 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
+- **Tự kiểm tra (selftest)**: 41 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
   (panic `index 61`, "không ghép được bài thứ hai", "nút Ghép bị mờ sau khi tải URL", "tải URL mất mục `<li>`"),
   1 bài **tích hợp LaBSE**, 4 bài **gộp hàng** (bản 2.4), 5 bài **mô hình khối** (bản 2.5),
   **3 bài bộ lọc chrom** (bản 2.6): mega-menu/ribbon/modal/comment theo class (tuoitre.vn),
@@ -109,6 +111,13 @@ PORT=1709 cargo run --release        # Linux/macOS
 set PORT=1709 && cargo run --release # Windows (cmd)
 ```
 
+**Đổi địa chỉ lắng nghe (bản 2.8)**: mặc định server chỉ mở `127.0.0.1` (máy của chính bạn — đúng
+lời hứa "100% cục bộ"). Muốn máy khác trong mạng LAN dùng chung:
+
+```bash
+REVA_BIND=0.0.0.0 cargo run --release   # mở cho cả LAN (banner sẽ cảnh báo)
+```
+
 Thư mục dữ liệu (session) mặc định nằm cạnh binary (`data/`); ghi đè bằng biến môi trường
 `REVA_DATA_DIR` (tên cũ `CANH_DOI_DATA_DIR` vẫn được chấp nhận).
 
@@ -143,9 +152,9 @@ en-vi-align-rust/
 │   ├── aligner.rs             # bộ ghép: chấm điểm + DP đơn điệu + hoà trộn LaBSE + rescore_pair (bản 2.5)
 │   ├── embedder.rs            # LaBSE: HTTP client + cosine + pipeline /api/align & selftest + pair_cosine (rescan)
 │   ├── session.rs             # phiên: tạo / mở / cập nhật / GỘP HÀNG / TÁCH / move_block / UNDO-REDO / rescan_row / NHẢ PHIÊN
-│   ├── exporter.rs            # xuất TSV / Moses / JSON / CSV / HTML / XLIFF / Excel .xlsx (tô màu ô) với chữ `none` nguyên văn (hỗ trợ nhiều khối/hàng)
+│   ├── exporter.rs            # xuất TSV / Moses / JSON / CSV / HTML / XLIFF / Excel .xlsx (tô màu ô) / TMX 1.2 với chữ `none` nguyên văn (hỗ trợ nhiều khối/hàng)
 │   ├── fetcher.rs             # tải URL + trích HTML
-│   ├── selftest.rs            # 35 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối + xlsx màu)
+│   ├── selftest.rs            # 41 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối + xlsx màu + 4 audit + TMX + rescan-all)
 │   ├── lexicon.rs             # từ điển Anh→Việt + danh sách từ phổ biến
 │   └── fold.rs                # bỏ dấu tiếng Việt ("Hà Nội" → "ha noi"), chuẩn hoá số
 └── data/sessions/             # (tạo lúc chạy) nơi lưu các phiên
@@ -163,12 +172,13 @@ en-vi-align-rust/
 | PATCH | `/api/sessions/{id}/rows/{index}` | Đổi trạng thái 1 hàng (bỏ ghép sẽ tách cặp) |
 | POST | `/api/sessions/{id}/rows/{index}/merge` | Gộp hàng kế tiếp vào hàng này (API bản 2.4, vẫn giữ) |
 | POST | `/api/sessions/{id}/rows/{index}/rescan` | **Rescan — chấm lại điểm hàng** (LaBSE nếu chạy + sàn từ vựng) · bản 2.5 |
+| POST | `/api/sessions/{id}/rescan-all` | **Rescan toàn bộ** — chấm lại mọi hàng đủ hai phía, 1 snapshot hoàn tác · bản 2.8 |
 | POST | `/api/sessions/{id}/blocks/move` | **Di chuyển khối** `{side, fromRow, fromPos, toRow, toPos, afterRow}` — `toRow: null` = tách thành hàng riêng · bản 2.5 |
 | POST | `/api/sessions/{id}/undo` | **Hoàn tác** bước gần nhất (40 bước) · bản 2.5 |
 | POST | `/api/sessions/{id}/redo` | **Làm lại** bước vừa hoàn tác · bản 2.5 |
-| POST | `/api/export` | Xuất file (`tsv` / `moses` / `json` / `csv` / `html` / `xliff` / `xlsx`) |
+| POST | `/api/export` | Xuất file (`tsv` / `moses` / `json` / `csv` / `html` / `xliff` / `xlsx` / `tmx`) |
 | POST | `/api/fetch-url` | Tải bài từ URL |
-| GET | `/api/selftest` | Chạy 35 bài tự kiểm |
+| GET | `/api/selftest` | Chạy 41 bài tự kiểm |
 | GET | `/api/model-status` | Trạng thái động cơ + LaBSE (`labse.ready`, `labse.url`) |
 | GET | `/api/health` | Kiểm tra sống |
 
@@ -184,7 +194,7 @@ en-vi-align-rust/
 5. Khi xuất, phía thiếu ghi đúng chữ **`none`** (nguyên văn) và **không bỏ sót đoạn nào**.
 
 (LaBSE chỉ đổi **điểm gốc** trước khi vào DP — 5 bất biến và toàn bộ quy ước trạng thái giữ nguyên, được kiểm lại
-trong selftest 35 bài kể cả khi có LaBSE. Rescan bản 2.5 dùng lại đúng lõi chấm điểm của bộ ghép — không thêm thuật toán mới.)
+trong selftest 41 bài kể cả khi có LaBSE. Rescan bản 2.5 dùng lại đúng lõi chấm điểm của bộ ghép — không thêm thuật toán mới.)
 
 ## Sửa lỗi so với các bản trước
 
