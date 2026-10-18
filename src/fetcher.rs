@@ -67,9 +67,26 @@ const LINKFARM_STRICT_RATIO: f64 = 0.80;
 /// Ngoài ra có LƯỚI AN TOÀN: nếu lọc chặt mà trăng tay (0 đoạn) thì tự chạy lại
 /// ở chế độ lỏng (bỏ lọc class/id tổ tiên) — xem `extract`.
 const CHROME_ATTR_KEYWORDS: &[&str] = &[
-    "menu", "nav", "mega", "ribbon", "breadcrumb", "modal", "popup", "comment", "share",
-    "social", "topbar", "newslette", "login", "signin", "signup", "register",
-    "related", "sitemap", "toolbar", "subscribe",
+    "menu",
+    "nav",
+    "mega",
+    "ribbon",
+    "breadcrumb",
+    "modal",
+    "popup",
+    "comment",
+    "share",
+    "social",
+    "topbar",
+    "newslette",
+    "login",
+    "signin",
+    "signup",
+    "register",
+    "related",
+    "sitemap",
+    "toolbar",
+    "subscribe",
 ];
 
 pub struct FetchedPage {
@@ -119,9 +136,7 @@ fn url_host_port(url: &str) -> Result<(String, u16), String> {
         return Err("URL phải bắt đầu bằng http:// hoặc https://".into());
     };
     // cắt phần path/query/fragment
-    let authority_end = rest
-        .find(['/', '?', '#'])
-        .unwrap_or(rest.len());
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..authority_end];
     // bỏ userinfo "user:pass@host" (hiếm nhưng hợp lệ theo RFC)
     let hostport = match authority.rfind('@') {
@@ -192,7 +207,8 @@ fn validate_public_url(url: &str) -> Result<(), String> {
         if ip_is_internal(a.ip()) {
             return Err(format!(
                 "Máy chủ {} trỏ về địa chỉ nội bộ {} — không tải.",
-                host, a.ip()
+                host,
+                a.ip()
             ));
         }
     }
@@ -211,7 +227,11 @@ fn resolve_redirect(base: &str, location: &str) -> Option<String> {
         return Some(loc.to_string());
     }
     if loc.starts_with("//") {
-        let scheme = if base.starts_with("http://") { "http" } else { "https" };
+        let scheme = if base.starts_with("http://") {
+            "http"
+        } else {
+            "https"
+        };
         return Some(format!("{}:{}", scheme, loc));
     }
     // origin = scheme://authority
@@ -410,9 +430,7 @@ fn extract_pass(html: &str, strict: bool) -> (String, Vec<String>) {
             continue; // chrom giao diện trang (timestamp, nút chia sẻ, newsletter…) — không phải nội dung bài
         }
         // ---- TẦNG 3 (2.6): caption/credit ảnh ----
-        if block.in_caption
-            && (text.chars().count() < CAPTION_MAX_LEN || is_photo_credit(&text))
-        {
+        if block.in_caption && (text.chars().count() < CAPTION_MAX_LEN || is_photo_credit(&text)) {
             continue;
         }
         if block.kind == "li" {
@@ -442,7 +460,11 @@ fn extract_pass(html: &str, strict: bool) -> (String, Vec<String>) {
                 continue;
             }
         }
-        let min_len = if block.kind == "p" { MIN_PARA_LEN } else { MIN_ITEM_LEN };
+        let min_len = if block.kind == "p" {
+            MIN_PARA_LEN
+        } else {
+            MIN_ITEM_LEN
+        };
         if text.chars().count() >= min_len {
             if paras.len() < MAX_PARAGRAPHS {
                 paras.push(text);
@@ -460,8 +482,20 @@ fn extract_pass(html: &str, strict: bool) -> (String, Vec<String>) {
 fn is_void_tag(name: &str) -> bool {
     matches!(
         name,
-        "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input" | "link" | "meta"
-            | "param" | "source" | "track" | "wbr"
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "param"
+            | "source"
+            | "track"
+            | "wbr"
     )
 }
 
@@ -515,10 +549,9 @@ fn attr_class_id(tag_text: &str) -> String {
         while let Some(rel) = tag_text[pos..].find(&pat) {
             let at = pos + rel;
             // ký tự TRƯỚC phải là ranh giới tên thuộc tính (không phải chữ/số/-/_)
-            let before_ok = tag_text[..at]
-                .chars()
-                .last()
-                .map_or(true, |c| !(c.is_alphanumeric() || c == '-' || c == '_' || c == ':'));
+            let before_ok = tag_text[..at].chars().last().map_or(true, |c| {
+                !(c.is_alphanumeric() || c == '-' || c == '_' || c == ':')
+            });
             if !before_ok {
                 pos = at + pat.len();
                 continue;
@@ -678,21 +711,21 @@ fn collect_blocks(lower: &str, strict: bool) -> Vec<Block> {
         let in_list = stack.iter().any(|(nm, _, _, _)| *nm == "ul" || *nm == "ol");
         let own_chrome = strict && has_chrome_attr(&tag.class_id);
         let in_attr_chrome = strict && stack.iter().any(|(_, _, c, _)| *c);
-        let cap = if tag.name == "p" && !in_li && !in_p && !in_chrome && !in_attr_chrome && !own_chrome
-        {
-            Some(tag.end)
-        } else if tag.name == "li"
-            && in_list
-            && !in_li
-            && !in_p
-            && !in_chrome
-            && !in_attr_chrome
-            && !own_chrome
-        {
-            Some(tag.end)
-        } else {
-            None
-        };
+        let cap =
+            if tag.name == "p" && !in_li && !in_p && !in_chrome && !in_attr_chrome && !own_chrome {
+                Some(tag.end)
+            } else if tag.name == "li"
+                && in_list
+                && !in_li
+                && !in_p
+                && !in_chrome
+                && !in_attr_chrome
+                && !own_chrome
+            {
+                Some(tag.end)
+            } else {
+                None
+            };
         stack.push((tag.name, cap, own_chrome, in_caption));
     }
     blocks
@@ -757,8 +790,9 @@ fn link_stats(inner: &str) -> (usize, usize) {
                     if let Some(s) = seg_start.take() {
                         if tag.start > s {
                             let frag = &inner[s..tag.start];
-                            anchor_chars +=
-                                collapse(&decode_entities(&strip_tags(frag))).chars().count();
+                            anchor_chars += collapse(&decode_entities(&strip_tags(frag)))
+                                .chars()
+                                .count();
                         }
                     }
                 }
@@ -782,7 +816,10 @@ fn has_tag_open(frag: &str, name: &str) -> bool {
     while let Some(rel) = frag[pos..].find(&pat) {
         let at = pos + rel;
         let after = frag[at + pat.len()..].chars().next();
-        if matches!(after, Some(' ') | Some('>') | Some('\t') | Some('\n') | Some('\r') | Some('/')) {
+        if matches!(
+            after,
+            Some(' ') | Some('>') | Some('\t') | Some('\n') | Some('\r') | Some('/')
+        ) {
             return true;
         }
         pos = at + pat.len();
@@ -814,7 +851,13 @@ fn is_boilerplate(text: &str) -> bool {
         return true;
     }
     // ---- dòng thời gian / nhãn xuất bản (EN + VI) ----
-    for p in ["published ", "updated ", "last updated ", "cập nhật ", "đăng ngày "] {
+    for p in [
+        "published ",
+        "updated ",
+        "last updated ",
+        "cập nhật ",
+        "đăng ngày ",
+    ] {
         if let Some(rest) = t.strip_prefix(p) {
             if rest.chars().next().map_or(false, |c| c.is_ascii_digit()) {
                 return true;
@@ -860,7 +903,11 @@ fn is_boilerplate(text: &str) -> bool {
         return true;
     }
     // ---- địa chỉ bưu điện (chân trang) ----
-    if t.contains("locked bag") || t.contains("p.o. box") || t.contains("po box") || t.contains("gpo box") {
+    if t.contains("locked bag")
+        || t.contains("p.o. box")
+        || t.contains("po box")
+        || t.contains("gpo box")
+    {
         return true;
     }
     false
@@ -964,7 +1011,9 @@ fn decode_entities(s: &str) -> String {
                     "nbsp" => Some(' '),
                     _ => {
                         if let Some(num) = ent.strip_prefix('#') {
-                            let cp = if let Some(hex) = num.strip_prefix('x').or_else(|| num.strip_prefix('X')) {
+                            let cp = if let Some(hex) =
+                                num.strip_prefix('x').or_else(|| num.strip_prefix('X'))
+                            {
                                 u32::from_str_radix(hex, 16).ok()
                             } else {
                                 num.parse::<u32>().ok()

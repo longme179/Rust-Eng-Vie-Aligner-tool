@@ -76,7 +76,9 @@ fn corpus_vi() -> String {
 
 /// Sinh văn bản giả định (LCG tất định) để stress-test.
 fn lcg_next(state: &mut u64) -> u64 {
-    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     *state >> 33
 }
 
@@ -87,7 +89,13 @@ fn synthetic_paragraphs(seed: u64, count: usize) -> String {
         let year = 1990 + (lcg_next(&mut state) % 40);
         let money = 10 + (lcg_next(&mut state) % 900);
         let name_idx = lcg_next(&mut state) % 5;
-        let names = ["Alpha Corp", "Beta Group", "Gamma Ltd", "Delta Fund", "Epsilon AG"];
+        let names = [
+            "Alpha Corp",
+            "Beta Group",
+            "Gamma Ltd",
+            "Delta Fund",
+            "Epsilon AG",
+        ];
         out.push(format!(
             "Report {} says {} shipped {} units in {} worth {} million dollars.",
             k + 1,
@@ -152,8 +160,8 @@ fn t_split_paragraphs() -> Result<(), String> {
 }
 
 fn t_invariants_corpus() -> Result<(), String> {
-    let out = aligner::align(&corpus_en(), &corpus_vi(), &AlignOptions::default())
-        .map_err(|e| e.0)?;
+    let out =
+        aligner::align(&corpus_en(), &corpus_vi(), &AlignOptions::default()).map_err(|e| e.0)?;
     aligner::validate_invariants(&out)?;
     let unmatched_en = out
         .rows
@@ -179,8 +187,8 @@ fn t_invariants_corpus() -> Result<(), String> {
 }
 
 fn t_quality_auto_matched() -> Result<(), String> {
-    let out = aligner::align(&corpus_en(), &corpus_vi(), &AlignOptions::default())
-        .map_err(|e| e.0)?;
+    let out =
+        aligner::align(&corpus_en(), &corpus_vi(), &AlignOptions::default()).map_err(|e| e.0)?;
     let c = count_statuses(&out.rows);
     // 9 cặp có thể ghép; yêu cầu ít nhất 7 đạt "tự khớp"
     if c.auto < 7 {
@@ -206,7 +214,12 @@ fn t_export_none_literal() -> Result<(), String> {
         let r = export_session(&session, fmt)?;
         let lines: Vec<&str> = r.content.trim_end_matches('\n').split('\n').collect();
         if lines.len() != session.rows.len() {
-            return Err(format!("{:?}: {} dòng ≠ {} hàng", fmt, lines.len(), session.rows.len()));
+            return Err(format!(
+                "{:?}: {} dòng ≠ {} hàng",
+                fmt,
+                lines.len(),
+                session.rows.len()
+            ));
         }
         let sep = match fmt {
             ExportFormat::Tsv => '\t',
@@ -225,22 +238,37 @@ fn t_export_none_literal() -> Result<(), String> {
                 _ => unreachable!(),
             };
             if en.is_empty() || vi.is_empty() {
-                return Err(format!("{:?}: dòng {} có phía rỗng (phải là 'none')", fmt, li));
+                return Err(format!(
+                    "{:?}: dòng {} có phía rỗng (phải là 'none')",
+                    fmt, li
+                ));
             }
             let row = &session.rows[li];
             if row.en.is_none() && en != "none" {
-                return Err(format!("{:?}: dòng {} phía Anh phải là 'none', được '{}'", fmt, li, en));
+                return Err(format!(
+                    "{:?}: dòng {} phía Anh phải là 'none', được '{}'",
+                    fmt, li, en
+                ));
             }
             if row.vi.is_none() && vi != "none" {
-                return Err(format!("{:?}: dòng {} phía Việt phải là 'none', được '{}'", fmt, li, vi));
+                return Err(format!(
+                    "{:?}: dòng {} phía Việt phải là 'none', được '{}'",
+                    fmt, li, vi
+                ));
             }
             if row.en.is_some() && en == "none" {
-                return Err(format!("{:?}: dòng {} phía Anh là văn bản nhưng xuất 'none'", fmt, li));
+                return Err(format!(
+                    "{:?}: dòng {} phía Anh là văn bản nhưng xuất 'none'",
+                    fmt, li
+                ));
             }
             let _ = sep;
         }
         if r.none_count != 1 {
-            return Err(format!("{:?}: kỳ vọng đúng 1 'none', được {}", fmt, r.none_count));
+            return Err(format!(
+                "{:?}: kỳ vọng đúng 1 'none', được {}",
+                fmt, r.none_count
+            ));
         }
     }
     // JSON
@@ -255,7 +283,10 @@ fn t_export_none_literal() -> Result<(), String> {
     }
     let none_count = rows
         .iter()
-        .filter(|x| x.get("en").and_then(|e| e.as_str()) == Some("none") || x.get("vi").and_then(|e| e.as_str()) == Some("none"))
+        .filter(|x| {
+            x.get("en").and_then(|e| e.as_str()) == Some("none")
+                || x.get("vi").and_then(|e| e.as_str()) == Some("none")
+        })
         .count();
     if none_count != 1 {
         return Err(format!("JSON: kỳ vọng 1 'none', được {}", none_count));
@@ -264,8 +295,7 @@ fn t_export_none_literal() -> Result<(), String> {
 }
 
 fn t_export_single_side() -> Result<(), String> {
-    let out = aligner::align("Alpha beta gamma.", "", &AlignOptions::default())
-        .map_err(|e| e.0)?;
+    let out = aligner::align("Alpha beta gamma.", "", &AlignOptions::default()).map_err(|e| e.0)?;
     if out.rows.len() != 1 || out.rows[0].vi.is_some() {
         return Err("một phía: phải có 1 hàng chỉ tiếng Anh".into());
     }
@@ -360,7 +390,8 @@ fn t_status_update_flow() -> Result<(), String> {
         return Err("human_confirmed không giữ cặp".into());
     }
     // bỏ ghép cặp đầu -> TÁCH thành 2 hàng
-    s.set_row_status(0, Status::Unmatched).map_err(|e| e.to_string())?;
+    s.set_row_status(0, Status::Unmatched)
+        .map_err(|e| e.to_string())?;
     if s.rows.len() != n0 + 1 {
         return Err(format!("tách cặp: {} hàng ≠ {}", s.rows.len(), n0 + 1));
     }
@@ -377,7 +408,8 @@ fn t_status_update_flow() -> Result<(), String> {
         }
     }
     // hàng một phía: cho phép human_confirmed
-    s.set_row_status(0, Status::HumanConfirmed).map_err(|e| e.to_string())?;
+    s.set_row_status(0, Status::HumanConfirmed)
+        .map_err(|e| e.to_string())?;
     // hàng một phía: KHÔNG cho phép needs_review
     if s.set_row_status(1, Status::NeedsReview).is_ok() {
         return Err("hàng một phía không được nhận needs_review".into());
@@ -426,7 +458,10 @@ fn t_session_release_and_persist() -> Result<(), String> {
     {
         let store2 = SessionStore::open(dir.clone());
         if store2.count() != 2 {
-            return Err(format!("khởi động lại phải thấy 2 phiên, được {}", store2.count()));
+            return Err(format!(
+                "khởi động lại phải thấy 2 phiên, được {}",
+                store2.count()
+            ));
         }
         let n = store2.delete_all();
         if n != 2 {
@@ -441,19 +476,37 @@ fn t_session_release_and_persist() -> Result<(), String> {
 }
 
 fn t_threshold_clamp() -> Result<(), String> {
-    let opts = AlignOptions { auto_threshold: 99.0 }.clamped();
+    let opts = AlignOptions {
+        auto_threshold: 99.0,
+    }
+    .clamped();
     if (opts.auto_threshold - 0.90).abs() > 1e-9 {
         return Err(format!("clamp trên sai: {}", opts.auto_threshold));
     }
-    let opts2 = AlignOptions { auto_threshold: -5.0 }.clamped();
+    let opts2 = AlignOptions {
+        auto_threshold: -5.0,
+    }
+    .clamped();
     if (opts2.auto_threshold - 0.05).abs() > 1e-9 {
         return Err(format!("clamp dưới sai: {}", opts2.auto_threshold));
     }
     // ngưỡng cao -> mọi cặp thành needs_review; ngưỡng thấp -> auto
-    let out_hi = aligner::align(&corpus_en(), &corpus_vi(), &AlignOptions { auto_threshold: 0.9 })
-        .map_err(|e| e.0)?;
-    let out_lo = aligner::align(&corpus_en(), &corpus_vi(), &AlignOptions { auto_threshold: 0.05 })
-        .map_err(|e| e.0)?;
+    let out_hi = aligner::align(
+        &corpus_en(),
+        &corpus_vi(),
+        &AlignOptions {
+            auto_threshold: 0.9,
+        },
+    )
+    .map_err(|e| e.0)?;
+    let out_lo = aligner::align(
+        &corpus_en(),
+        &corpus_vi(),
+        &AlignOptions {
+            auto_threshold: 0.05,
+        },
+    )
+    .map_err(|e| e.0)?;
     let ch = count_statuses(&out_hi.rows);
     let cl = count_statuses(&out_lo.rows);
     if ch.auto >= cl.auto {
@@ -497,7 +550,10 @@ fn t_numbers_alignment() -> Result<(), String> {
     let s0 = out.rows[0].score.unwrap_or(0.0);
     let s1 = out.rows[1].score.unwrap_or(0.0);
     if s0 <= s1 {
-        return Err(format!("đoạn nhiều số phải điểm cao hơn ({} vs {})", s0, s1));
+        return Err(format!(
+            "đoạn nhiều số phải điểm cao hơn ({} vs {})",
+            s0, s1
+        ));
     }
     if out.rows[0].status != Status::AutoMatched {
         return Err(format!("cặp số liệu phải tự khớp (điểm {})", s0));
@@ -527,9 +583,14 @@ fn t_html_extract() -> Result<(), String> {
         return Err(format!("title sai: '{}'", title));
     }
     if paras.len() != 3 {
-        return Err(format!("kỳ vọng 3 đoạn (bỏ 'Ngắn.'), được {}: {:?}", paras.len(), paras));
+        return Err(format!(
+            "kỳ vọng 3 đoạn (bỏ 'Ngắn.'), được {}: {:?}",
+            paras.len(),
+            paras
+        ));
     }
-    if paras[0].contains("<b>") || paras[0].contains("bỏ tôi") || paras[0].contains("color:red") {
+    if paras[0].contains("<b>") || paras[0].contains("bỏ tôi") || paras[0].contains("color:red")
+    {
         return Err(format!("thẻ/script phải được bỏ: '{}'", paras[0]));
     }
     if !paras[0].contains("& thị") && !paras[0].contains("ị") {
@@ -567,7 +628,10 @@ fn t_boilerplate_filter() -> Result<(), String> {
         "Published reports suggest",
     ] {
         if !joined.contains(must_keep) {
-            return Err(format!("đoạn thật '{}' bị lọc nhầm — không được phép", must_keep));
+            return Err(format!(
+                "đoạn thật '{}' bị lọc nhầm — không được phép",
+                must_keep
+            ));
         }
     }
     // chrom phải bị BỎ toàn bộ
@@ -589,7 +653,11 @@ fn t_boilerplate_filter() -> Result<(), String> {
         }
     }
     if paras.len() != 3 {
-        return Err(format!("kỳ vọng đúng 3 đoạn nội dung thật, được {}: {:?}", paras.len(), paras));
+        return Err(format!(
+            "kỳ vọng đúng 3 đoạn nội dung thật, được {}: {:?}",
+            paras.len(),
+            paras
+        ));
     }
     Ok(())
 }
@@ -616,7 +684,12 @@ fn t_stress_fuzz() -> Result<(), String> {
 
 fn t_status_enum_contract() -> Result<(), String> {
     // quy ước trạng thái: đúng 4 giá trị, parse từ chuỗi chuẩn
-    let expect = ["auto_matched", "needs_review", "unmatched", "human_confirmed"];
+    let expect = [
+        "auto_matched",
+        "needs_review",
+        "unmatched",
+        "human_confirmed",
+    ];
     for s in expect {
         if Status::parse(s).is_none() {
             return Err(format!("thiếu trạng thái '{}'", s));
@@ -640,7 +713,8 @@ fn t_export_after_split() -> Result<(), String> {
     // tách cặp rồi xuất — 'none' phải xuất hiện đúng 2 dòng liên tiếp
     let store = temp_store("split");
     let mut s = align_to_session(&store, &corpus_en(), &corpus_vi())?;
-    s.set_row_status(0, Status::Unmatched).map_err(|e| e.to_string())?;
+    s.set_row_status(0, Status::Unmatched)
+        .map_err(|e| e.to_string())?;
     store.save(&s).map_err(|e| e.to_string())?;
     let r = export_session(&s, ExportFormat::Tsv)?;
     let lines: Vec<&str> = r.content.trim_end_matches('\n').split('\n').collect();
@@ -676,7 +750,12 @@ struct Counts {
 }
 
 fn count_statuses(rows: &[crate::aligner::Row]) -> Counts {
-    let mut c = Counts { auto: 0, needs: 0, unmat: 0, human: 0 };
+    let mut c = Counts {
+        auto: 0,
+        needs: 0,
+        unmat: 0,
+        human: 0,
+    };
     for r in rows {
         match r.status {
             Status::AutoMatched => c.auto += 1,
@@ -749,14 +828,19 @@ fn t_labse_integration_inner() -> Result<(), String> {
     let out_one = aligner::align_with_emb(en, vi, &opts, Some(&cos_one)).map_err(|e| e.0)?;
     let out_zero = aligner::align_with_emb(en, vi, &opts, Some(&cos_zero)).map_err(|e| e.0)?;
     let s_one = out_one.rows[0].score.ok_or("hàng 0 (cos=1) phải có điểm")?;
-    let s_zero = out_zero.rows[0].score.ok_or("hàng 0 (cos=0) phải có điểm")?;
+    let s_zero = out_zero.rows[0]
+        .score
+        .ok_or("hàng 0 (cos=0) phải có điểm")?;
     // Công thức công khai (bản 2.2): điểm = max(từ_vựng, 0.4*từ_vựng + 0.6*tin_cậy)
     //   * cos=1.0 -> tin_cậy=1 -> 0.4*s_lex + 0.6  (được NÂNG lên)
     //   * cos=0.0 -> tin_cậy=0 -> sàn từ vựng s_lex (GIỮ NGUYÊN — LaBSE không được HẠ)
     let expect_one = (1.0 - aligner::W_EMB) * s_lex + aligner::W_EMB;
     let expect_zero = s_lex;
     if (s_one - expect_one).abs() > 0.003 {
-        return Err(format!("cos=1: kỳ vọng ~{:.3}, được {:.3}", expect_one, s_one));
+        return Err(format!(
+            "cos=1: kỳ vọng ~{:.3}, được {:.3}",
+            expect_one, s_one
+        ));
     }
     if (s_zero - expect_zero).abs() > 0.001 {
         return Err(format!(
@@ -774,7 +858,8 @@ fn t_labse_integration_inner() -> Result<(), String> {
         ));
     }
     // ma trận SAI kích thước phải bị bỏ qua an toàn (fallback, không panic)
-    let out_bad = aligner::align_with_emb(en, vi, &opts, Some(&[0.9, 0.9, 0.9])).map_err(|e| e.0)?;
+    let out_bad =
+        aligner::align_with_emb(en, vi, &opts, Some(&[0.9, 0.9, 0.9])).map_err(|e| e.0)?;
     if out_bad.engine != "lexical" || out_bad.rows[0].score != Some(s_lex) {
         return Err("ma trận cosine sai kích thước phải fallback về đúng điểm từ vựng".into());
     }
@@ -790,17 +875,21 @@ fn t_labse_integration_inner() -> Result<(), String> {
         .collect();
 
     let dim = 8usize;
-    let mapping: Arc<StdMutex<HashMap<String, Vec<f32>>>> =
-        Arc::new(StdMutex::new(HashMap::new()));
+    let mapping: Arc<StdMutex<HashMap<String, Vec<f32>>>> = Arc::new(StdMutex::new(HashMap::new()));
     for i in 0..5 {
         let mut v = vec![0.0f32; dim];
         v[i] = 1.0;
-        mapping.lock().unwrap().insert(en_paras[i].clone(), v.clone());
+        mapping
+            .lock()
+            .unwrap()
+            .insert(en_paras[i].clone(), v.clone());
         mapping.lock().unwrap().insert(vi_paras[i].clone(), v);
     }
 
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("bind mock: {}", e))?;
-    let addr = listener.local_addr().map_err(|e| format!("addr mock: {}", e))?;
+    let addr = listener
+        .local_addr()
+        .map_err(|e| format!("addr mock: {}", e))?;
     let base_url = format!("http://{}", addr);
     let map_shared = mapping.clone();
     let _serve = std::thread::spawn(move || {
@@ -861,7 +950,11 @@ fn t_labse_integration_inner() -> Result<(), String> {
                             .unwrap_or_else(|| vec![0.0; dim])
                     })
                     .collect();
-                (200, "OK", serde_json::json!({ "embeddings": emb }).to_string())
+                (
+                    200,
+                    "OK",
+                    serde_json::json!({ "embeddings": emb }).to_string(),
+                )
             } else {
                 (
                     404,
@@ -971,7 +1064,12 @@ fn t_list_items_extract() -> Result<(), String> {
     }
     for (i, (got, want)) in paras.iter().zip(expected.iter()).enumerate() {
         if got != want {
-            return Err(format!("đoạn {}: được {:?}, kỳ vọng {:?}", i + 1, got, want));
+            return Err(format!(
+                "đoạn {}: được {:?}, kỳ vọng {:?}",
+                i + 1,
+                got,
+                want
+            ));
         }
     }
     Ok(())
@@ -985,7 +1083,8 @@ fn t_export_new_formats() -> Result<(), String> {
     let en1 = "The mayor said \"clean energy, jobs and growth\" will lead the agenda.";
     let en2 = "A short paragraph without any translation at all appears in this row.";
     let vi0 = "Hà Nội tổ chức hội nghị năm 2025, thu hút 4.000 khách.";
-    let vi1 = "Thị trưởng nói \"năng lượng sạch, việc làm và tăng trưởng\" sẽ dẫn dắt chương trình.";
+    let vi1 =
+        "Thị trưởng nói \"năng lượng sạch, việc làm và tăng trưởng\" sẽ dẫn dắt chương trình.";
     let vi2 = "Đây là đoạn tiếng Việt thừa, không có bản tiếng Anh tương ứng.";
     let rows = vec![
         Row {
@@ -1041,7 +1140,9 @@ fn t_export_new_formats() -> Result<(), String> {
         english: vec![en0.into(), en1.into(), en2.into()],
         vietnamese: vec![vi0.into(), vi1.into(), vi2.into()],
         rows,
-        options: AlignOptions { auto_threshold: 0.30 },
+        options: AlignOptions {
+            auto_threshold: 0.30,
+        },
         engine: "lexical".into(),
         reordered: false,
         undo_stack: Vec::new(),
@@ -1074,7 +1175,10 @@ fn t_export_new_formats() -> Result<(), String> {
     }
     let lines: Vec<&str> = r.content.trim_end_matches('\n').split('\n').collect();
     if lines.len() != 5 {
-        return Err(format!("CSV phải có 1 header + 4 hàng, được {} dòng", lines.len()));
+        return Err(format!(
+            "CSV phải có 1 header + 4 hàng, được {} dòng",
+            lines.len()
+        ));
     }
     // escape RFC 4180: nháy kép nội bộ nhân đôi, cả ô bọc trong "..."
     if !r
@@ -1083,14 +1187,28 @@ fn t_export_new_formats() -> Result<(), String> {
     {
         return Err(format!("CSV escape RFC 4180 sai: {}", r.content));
     }
-    if r.content.lines().nth(3).map(|l| !l.ends_with(",none")).unwrap_or(true) {
-        return Err(format!("CSV hàng 3 (EN-only) phải kết thúc bằng 'none': {}", r.content));
+    if r.content
+        .lines()
+        .nth(3)
+        .map(|l| !l.ends_with(",none"))
+        .unwrap_or(true)
+    {
+        return Err(format!(
+            "CSV hàng 3 (EN-only) phải kết thúc bằng 'none': {}",
+            r.content
+        ));
     }
     if !r.content.contains("\n3,human_confirmed,,none,") {
-        return Err(format!("CSV hàng 4 (VI-only) phải có 'none' ở cột EN: {}", r.content));
+        return Err(format!(
+            "CSV hàng 4 (VI-only) phải có 'none' ở cột EN: {}",
+            r.content
+        ));
     }
     if r.none_count != 2 || r.rows != 4 {
-        return Err(format!("CSV none_count phải 2, rows 4 — được {}/{}", r.none_count, r.rows));
+        return Err(format!(
+            "CSV none_count phải 2, rows 4 — được {}/{}",
+            r.none_count, r.rows
+        ));
     }
 
     // ---- HTML ----
@@ -1179,7 +1297,14 @@ fn manual_session(en: Vec<String>, vi: Vec<String>, rows: Vec<Row>) -> Session {
     }
 }
 
-fn pair_row(a: usize, b: usize, en: &[String], vi: &[String], status: Status, score: Option<f64>) -> Row {
+fn pair_row(
+    a: usize,
+    b: usize,
+    en: &[String],
+    vi: &[String],
+    status: Status,
+    score: Option<f64>,
+) -> Row {
     Row {
         index: 0,
         en_index: Some(a),
@@ -1201,7 +1326,11 @@ fn t_merge_adjacent_and_export() -> Result<(), String> {
     // gộp hàng 1 vào hàng 0 (hai cặp đầu)
     s.merge_next(0, None).map_err(|e| e.to_string())?;
     if s.rows.len() != n0 - 1 {
-        return Err(format!("sau gộp phải còn {} hàng, được {}", n0 - 1, s.rows.len()));
+        return Err(format!(
+            "sau gộp phải còn {} hàng, được {}",
+            n0 - 1,
+            s.rows.len()
+        ));
     }
     let r0 = &s.rows[0];
     if r0.en_segments().len() != 2 || r0.vi_segments().len() != 2 {
@@ -1243,7 +1372,10 @@ fn t_merge_adjacent_and_export() -> Result<(), String> {
     }
     let r = export_session(&s, ExportFormat::Csv)?;
     // ô CSV chứa 2 dòng trong 1 ô trích dẫn: "en0\nen1"
-    if !r.content.contains(&format!("\"{}\n{}\"", EN_ARTICLE[0], EN_ARTICLE[1])) {
+    if !r
+        .content
+        .contains(&format!("\"{}\n{}\"", EN_ARTICLE[0], EN_ARTICLE[1]))
+    {
         return Err("CSV phải giữ 2 đoạn trong cùng một ô (trích dẫn nhiều dòng)".into());
     }
     let r = export_session(&s, ExportFormat::Html)?;
@@ -1253,7 +1385,10 @@ fn t_merge_adjacent_and_export() -> Result<(), String> {
         }
     }
     let r = export_session(&s, ExportFormat::Xliff)?;
-    if !r.content.contains(&format!("<source xml:lang=\"en\">{}</source>", joined)) {
+    if !r
+        .content
+        .contains(&format!("<source xml:lang=\"en\">{}</source>", joined))
+    {
         return Err("XLIFF phải nối 2 đoạn EN bằng dấu cách".into());
     }
     Ok(())
@@ -1304,7 +1439,13 @@ fn t_merge_one_to_many() -> Result<(), String> {
     if r.rows != 2 {
         return Err(format!("TSV phải 2 hàng, được {}", r.rows));
     }
-    let vi_joined = format!("{} {} {} {}", "Những thay đổi được đề xuất bao gồm ba mục chính về quyên góp chính trị.", "Hạ ngưỡng công bố xuống 1.000 AUD.", "Giới hạn chi phí vận động tranh cử ở mức 800.000 AUD.", "Giới hạn đóng góp của cá nhân ở mức 20.000 AUD.");
+    let vi_joined = format!(
+        "{} {} {} {}",
+        "Những thay đổi được đề xuất bao gồm ba mục chính về quyên góp chính trị.",
+        "Hạ ngưỡng công bố xuống 1.000 AUD.",
+        "Giới hạn chi phí vận động tranh cử ở mức 800.000 AUD.",
+        "Giới hạn đóng góp của cá nhân ở mức 20.000 AUD."
+    );
     if !r.content.contains(&vi_joined) {
         return Err("TSV hàng gộp phải nối đủ 4 đoạn VI".into());
     }
@@ -1336,9 +1477,13 @@ fn t_merge_split_roundtrip() -> Result<(), String> {
         s.merge_next(target, None).map_err(|e| e.to_string())?;
     }
     // tách hàng gộp 0 → 1 EN-only + 4 VI-only = 5 hàng
-    s.set_row_status(0, Status::Unmatched).map_err(|e| e.to_string())?;
+    s.set_row_status(0, Status::Unmatched)
+        .map_err(|e| e.to_string())?;
     if s.rows.len() != 6 {
-        return Err(format!("sau tách phải có 6 hàng (5 đơn phía + 1 cặp), được {}", s.rows.len()));
+        return Err(format!(
+            "sau tách phải có 6 hàng (5 đơn phía + 1 cặp), được {}",
+            s.rows.len()
+        ));
     }
     // 5 hàng đầu: xen kẽ EN-only rồi 4 VI-only, đúng chỉ số gốc
     let expect: Vec<(Option<usize>, Option<usize>)> = vec![
@@ -1400,7 +1545,8 @@ fn t_merge_one_side_and_human_confirm() -> Result<(), String> {
         return Err("gộp cùng phía mặc định phải unmatched".into());
     }
     // xác nhận "không có bản dịch" → human_confirmed một phía (ngoại lệ I4 có chủ đích)
-    s.set_row_status(0, Status::HumanConfirmed).map_err(|e| e.to_string())?;
+    s.set_row_status(0, Status::HumanConfirmed)
+        .map_err(|e| e.to_string())?;
     // xuất qua đủ 6 định dạng — không được vỡ bất biến
     for fmt in [
         ExportFormat::Tsv,
@@ -1412,7 +1558,10 @@ fn t_merge_one_side_and_human_confirm() -> Result<(), String> {
     ] {
         let r = export_session(&s, fmt)?;
         if r.none_count != 1 {
-            return Err(format!("{:?}: none_count phải 1, được {:?}", fmt, r.none_count));
+            return Err(format!(
+                "{:?}: none_count phải 1, được {:?}",
+                fmt, r.none_count
+            ));
         }
         if !r.content.contains("none") {
             return Err(format!("{:?}: thiếu chữ none nguyên văn", fmt));
@@ -1454,9 +1603,14 @@ fn t_block_move_and_undo() -> Result<(), String> {
     let before = s.rows.clone();
 
     // ---- kéo khối VI của hàng 4 (đoạn gốc 4) vào ô VI của hàng 2 (nối cuối)
-    let focus = s.move_block(Side::Vi, 4, 0, Some(2), usize::MAX, None).map_err(|e| e)?;
+    let focus = s
+        .move_block(Side::Vi, 4, 0, Some(2), usize::MAX, None)
+        .map_err(|e| e)?;
     if s.rows.len() != 4 {
-        return Err(format!("hàng mồ côi mất khối cuối phải tự xoá — còn {} hàng", s.rows.len()));
+        return Err(format!(
+            "hàng mồ côi mất khối cuối phải tự xoá — còn {} hàng",
+            s.rows.len()
+        ));
     }
     if focus != 2 {
         return Err(format!("focus phải là hàng 2, được {}", focus));
@@ -1474,7 +1628,8 @@ fn t_block_move_and_undo() -> Result<(), String> {
     }
 
     // ---- đổi thứ tự trong cùng ô: đưa đoạn 4 lên TRƯỚC đoạn 2
-    s.move_block(Side::Vi, 2, 1, Some(2), 0, None).map_err(|e| e)?;
+    s.move_block(Side::Vi, 2, 1, Some(2), 0, None)
+        .map_err(|e| e)?;
     let vi_ids: Vec<usize> = s.rows[2].vi_segments().iter().map(|(i, _)| *i).collect();
     if vi_ids != vec![4, 2] {
         return Err(format!("đổi chỗ trong ô phải ra [4, 2], được {:?}", vi_ids));
@@ -1484,7 +1639,11 @@ fn t_block_move_and_undo() -> Result<(), String> {
     s.undo().map_err(|e| e)?;
     s.undo().map_err(|e| e)?;
     if s.rows.len() != before.len() {
-        return Err(format!("sau 2 lần hoàn tác phải về {} hàng, được {}", before.len(), s.rows.len()));
+        return Err(format!(
+            "sau 2 lần hoàn tác phải về {} hàng, được {}",
+            before.len(),
+            s.rows.len()
+        ));
     }
     for (k, (a, b)) in s.rows.iter().zip(before.iter()).enumerate() {
         if a.status != b.status
@@ -1502,7 +1661,15 @@ fn t_block_move_and_undo() -> Result<(), String> {
         return Err("làm lại phải tái hiện bước kéo khối đầu tiên".into());
     }
     // hoàn tác khi rỗng phải báo lỗi rõ
-    let mut s2 = manual_session(vec!["Only one paragraph here.".into()], vec![], vec![Row::single_side(Some((0, "Only one paragraph here.".into())), None, Status::Unmatched)]);
+    let mut s2 = manual_session(
+        vec!["Only one paragraph here.".into()],
+        vec![],
+        vec![Row::single_side(
+            Some((0, "Only one paragraph here.".into())),
+            None,
+            Status::Unmatched,
+        )],
+    );
     if s2.undo().is_ok() {
         return Err("hoàn tác khi chưa làm gì phải báo lỗi".into());
     }
@@ -1526,7 +1693,9 @@ fn t_block_detach_newrow() -> Result<(), String> {
     ];
     let mut s = manual_session(en, vi, rows);
     // tách khối VI của hàng 1 thành hàng riêng sau hàng 1
-    let focus = s.move_block(Side::Vi, 1, 0, None, 0, Some(1)).map_err(|e| e)?;
+    let focus = s
+        .move_block(Side::Vi, 1, 0, None, 0, Some(1))
+        .map_err(|e| e)?;
     if s.rows.len() != 3 {
         return Err(format!("sau tách phải 3 hàng, được {}", s.rows.len()));
     }
@@ -1534,7 +1703,10 @@ fn t_block_detach_newrow() -> Result<(), String> {
         return Err(format!("hàng mới phải ở vị trí 2, được {}", focus));
     }
     let new_row = &s.rows[2];
-    if new_row.vi_index != Some(1) || new_row.en_index.is_some() || new_row.status != Status::Unmatched {
+    if new_row.vi_index != Some(1)
+        || new_row.en_index.is_some()
+        || new_row.status != Status::Unmatched
+    {
         return Err("hàng tách phải là VI-only đoạn 1, unmatched".into());
     }
     // hàng nguồn giờ còn mỗi EN → unmatched, điểm xoá
@@ -1564,7 +1736,11 @@ fn t_rescan_row() -> Result<(), String> {
     let rows = vec![
         pair_row(0, 0, &en, &vi, Status::AutoMatched, Some(0.95)),
         pair_row(1, 1, &en, &vi, Status::AutoMatched, Some(0.95)),
-        Row::single_side(Some((1, "English paragraph without translation.".into())), None, Status::Unmatched),
+        Row::single_side(
+            Some((1, "English paragraph without translation.".into())),
+            None,
+            Status::Unmatched,
+        ),
     ];
     let mut s = manual_session(en, vi, rows);
     // cặp A–A1: điểm chấm lại phải cao (≥ ngưỡng) → tự khớp
@@ -1573,14 +1749,30 @@ fn t_rescan_row() -> Result<(), String> {
         return Err(format!("điểm rescan phải trong 0..1, được {}", score_a));
     }
     if st_a != Status::AutoMatched {
-        return Err(format!("cặp dịch đúng sau rescan phải auto_matched, được {:?}", st_a));
+        return Err(format!(
+            "cặp dịch đúng sau rescan phải auto_matched, được {:?}",
+            st_a
+        ));
     }
     // điểm của rescan phải KHỚP công thức thuần (không LaBSE trong môi trường selftest)
-    let en_text = s.rows[0].en_segments().iter().map(|(_, t)| *t).collect::<Vec<&str>>().join(" ");
-    let vi_text = s.rows[0].vi_segments().iter().map(|(_, t)| *t).collect::<Vec<&str>>().join(" ");
+    let en_text = s.rows[0]
+        .en_segments()
+        .iter()
+        .map(|(_, t)| *t)
+        .collect::<Vec<&str>>()
+        .join(" ");
+    let vi_text = s.rows[0]
+        .vi_segments()
+        .iter()
+        .map(|(_, t)| *t)
+        .collect::<Vec<&str>>()
+        .join(" ");
     let expect = aligner::rescore_pair(&s.english, &s.vietnamese, &en_text, &vi_text, None);
     if (score_a - expect).abs() > 0.002 {
-        return Err(format!("rescan phải đúng công thức rescore_pair: {:.3} vs {:.3}", score_a, expect));
+        return Err(format!(
+            "rescan phải đúng công thức rescore_pair: {:.3} vs {:.3}",
+            score_a, expect
+        ));
     }
     // hoà trộn LaBSE (cos=1) chỉ được NÂNG điểm, không hạ — dùng thẳng công thức
     let blend_hi = aligner::rescore_pair(&s.english, &s.vietnamese, &en_text, &vi_text, Some(1.0));
@@ -1590,7 +1782,10 @@ fn t_rescan_row() -> Result<(), String> {
     // hàng một phía phải từ chối kèm hướng dẫn (hàng 2: EN-only)
     let err = s.rescan_row(2).map(|_| ()).unwrap_err();
     if !err.contains("một phía") {
-        return Err(format!("thông báo từ chối phải nói rõ hàng một phía, được: {}", err));
+        return Err(format!(
+            "thông báo từ chối phải nói rõ hàng một phía, được: {}",
+            err
+        ));
     }
     // sau rescan vẫn hoàn tác được (trả lại điểm cũ)
     s.undo().map_err(|e| e)?;
@@ -1617,8 +1812,10 @@ fn t_export_after_reorder() -> Result<(), String> {
     ];
     let mut s = manual_session(en, vi, rows);
     // tráo chéo: VI[1] lên hàng 0, VI[0] xuống hàng 1 — phá đơn điệu có chủ đích
-    s.move_block(Side::Vi, 1, 0, Some(0), 1, None).map_err(|e| e)?;
-    s.move_block(Side::Vi, 0, 0, Some(1), 1, None).map_err(|e| e)?;
+    s.move_block(Side::Vi, 1, 0, Some(0), 1, None)
+        .map_err(|e| e)?;
+    s.move_block(Side::Vi, 0, 0, Some(1), 1, None)
+        .map_err(|e| e)?;
     if !s.reordered {
         return Err("cờ reordered phải bật sau khi tráo chéo khối giữa các hàng".into());
     }
@@ -1638,15 +1835,26 @@ fn t_export_after_reorder() -> Result<(), String> {
     }
     // TSV: hàng 0 phải là EN[0] + VI[1], hàng 1 là EN[1] + VI[0]
     let r = export_session(&s, ExportFormat::Tsv)?;
-    let line0: Vec<&str> = r.content.lines().next().ok_or("TSV rỗng")?.split('\t').collect();
+    let line0: Vec<&str> = r
+        .content
+        .lines()
+        .next()
+        .ok_or("TSV rỗng")?
+        .split('\t')
+        .collect();
     if line0[1] != "Đoạn thứ hai về báo cáo của uỷ ban." {
         return Err("hàng 0 phải ghép EN[0] với VI[1] sau khi tráo chéo".into());
     }
     // I1 VẪN GẮT: giờ cố tình làm hỏng (nhân đôi 1 khối) → mọi export phải từ chối
     let mut broken = s.clone();
-    broken.rows[1].vi_extra.push(crate::aligner::Seg::new(1, "Đoạn thứ hai về báo cáo của uỷ ban.".into()));
+    broken.rows[1].vi_extra.push(crate::aligner::Seg::new(
+        1,
+        "Đoạn thứ hai về báo cáo của uỷ ban.".into(),
+    ));
     if export_session(&broken, ExportFormat::Tsv).is_ok() {
-        return Err("I1 bị phá (đoạn dùng 2 lần) thì export phải từ chối, kể cả đã reordered".into());
+        return Err(
+            "I1 bị phá (đoạn dùng 2 lần) thì export phải từ chối, kể cả đã reordered".into(),
+        );
     }
     // phiên CHƯA reordered mà đơn điệu bị phá → export cũng phải từ chối (I3 gắt)
     let mut fake = s.clone();
@@ -1664,7 +1872,14 @@ fn t_move_invalid() -> Result<(), String> {
     let mut s = manual_session(
         en,
         vi,
-        vec![pair_row(0, 0, &vec!["English source paragraph.".into()], &vec!["Đoạn tiếng Việt tương ứng.".into()], Status::AutoMatched, Some(0.9))],
+        vec![pair_row(
+            0,
+            0,
+            &vec!["English source paragraph.".into()],
+            &vec!["Đoạn tiếng Việt tương ứng.".into()],
+            Status::AutoMatched,
+            Some(0.9),
+        )],
     );
     // hàng nguồn không tồn tại
     if s.move_block(Side::En, 9, 0, Some(0), 0, None).is_ok() {
@@ -1683,7 +1898,8 @@ fn t_move_invalid() -> Result<(), String> {
         return Err("hàng mốc ngoài phạm vi phải bị từ chối".into());
     }
     // no-op: thả đúng chỗ cũ → không đẩy history (undo stack vẫn rỗng)
-    s.move_block(Side::En, 0, 0, Some(0), 0, None).map_err(|e| e)?;
+    s.move_block(Side::En, 0, 0, Some(0), 0, None)
+        .map_err(|e| e)?;
     if !s.undo_stack.is_empty() {
         return Err("no-op không được đẩy vào ngăn hoàn tác".into());
     }
@@ -1752,15 +1968,26 @@ fn t_mega_menu_extract() -> Result<(), String> {
     }
     for (i, (got, want)) in paras.iter().zip(expected.iter()).enumerate() {
         if !got.contains(want) {
-            return Err(format!("đoạn {} phải chứa {:?}, được {:?}", i + 1, want, got));
+            return Err(format!(
+                "đoạn {} phải chứa {:?}, được {:?}",
+                i + 1,
+                want,
+                got
+            ));
         }
     }
     // mọi khối rác phải bị BỎ toàn bộ
     for must_drop in [
-        "Mới nhất", "Bình luận", "Bầu cử Mỹ 2024", "Xem thêm",
-        "Ảnh: C.DŨNG", "Thông tin đăng nhập không đúng",
-        "Hiện chưa có bình luận", "Tuổi Trẻ Online sẽ gởi",
-        "Thêm chuyên mục", "Chiều 29-9, Bộ Công Thương",
+        "Mới nhất",
+        "Bình luận",
+        "Bầu cử Mỹ 2024",
+        "Xem thêm",
+        "Ảnh: C.DŨNG",
+        "Thông tin đăng nhập không đúng",
+        "Hiện chưa có bình luận",
+        "Tuổi Trẻ Online sẽ gởi",
+        "Thêm chuyên mục",
+        "Chiều 29-9, Bộ Công Thương",
     ] {
         if paras.iter().any(|p| p.contains(must_drop)) {
             return Err(format!("chrom '{}' phải bị lượt bỏ khi tải URL", must_drop));
@@ -1789,17 +2016,17 @@ fn t_caption_credit_extract() -> Result<(), String> {
             return Err(format!("'{}' phải được GIỮ nhưng bị lọc nhầm", must_keep));
         }
     }
-    for must_drop in [
-        "Chú thích ảnh ngắn.",
-        "Ảnh: TRẦN VĂN A",
-        "Nguồn: Reuters",
-    ] {
+    for must_drop in ["Chú thích ảnh ngắn.", "Ảnh: TRẦN VĂN A", "Nguồn: Reuters"] {
         if joined.contains(must_drop) {
             return Err(format!("credit/caption '{}' phải bị bỏ", must_drop));
         }
     }
     if paras.len() != 2 {
-        return Err(format!("kỳ vọng 2 đoạn, được {}: {:#?}", paras.len(), paras));
+        return Err(format!(
+            "kỳ vọng 2 đoạn, được {}: {:#?}",
+            paras.len(),
+            paras
+        ));
     }
     Ok(())
 }
@@ -1830,7 +2057,12 @@ fn t_link_farm_extract() -> Result<(), String> {
     }
     for (i, (got, want)) in paras.iter().zip(expected.iter()).enumerate() {
         if !got.contains(want) {
-            return Err(format!("đoạn {} phải chứa {:?}, được {:?}", i + 1, want, got));
+            return Err(format!(
+                "đoạn {} phải chứa {:?}, được {:?}",
+                i + 1,
+                want,
+                got
+            ));
         }
     }
     Ok(())
@@ -1986,7 +2218,9 @@ fn t_export_xlsx_colors() -> Result<(), String> {
         english: vec![en0.into(), en1.into(), en2.into()],
         vietnamese: vec![vi0.into(), vi1.into(), vi2.into()],
         rows,
-        options: AlignOptions { auto_threshold: 0.30 },
+        options: AlignOptions {
+            auto_threshold: 0.30,
+        },
         engine: "lexical".into(),
         reordered: false,
         undo_stack: Vec::new(),
@@ -2011,7 +2245,10 @@ fn t_export_xlsx_colors() -> Result<(), String> {
         return Err(format!("mime sai: {}", r.mime));
     }
     if r.rows != 4 || r.none_count != 2 {
-        return Err(format!("rows/none phải 4/2, được {}/{}", r.rows, r.none_count));
+        return Err(format!(
+            "rows/none phải 4/2, được {}/{}",
+            r.rows, r.none_count
+        ));
     }
 
     let styles = zip_read(bytes, "xl/styles.xml")?;
@@ -2029,13 +2266,13 @@ fn t_export_xlsx_colors() -> Result<(), String> {
     let fills = xlsx_fill_colors(&styles);
     let xfs = xlsx_xf_fill_ids(&styles);
     let expect: [(u32, &str); 8] = [
-        (1, "FFDCEEE8"), // header
-        (2, "FFE2EFDA"), // tự khớp
-        (3, "FFFADCE3"), // không khớp (chỉ EN)
-        (4, "FFE2EFDA"), // đã xác nhận (chỉ VI)
-        (5, "FFFFF2CC"), // cần soát
-        (8, "FFE2EFDA"), // chú giải: xanh (0-based 7 → r=8)
-        (9, "FFFFF2CC"), // chú giải: vàng
+        (1, "FFDCEEE8"),  // header
+        (2, "FFE2EFDA"),  // tự khớp
+        (3, "FFFADCE3"),  // không khớp (chỉ EN)
+        (4, "FFE2EFDA"),  // đã xác nhận (chỉ VI)
+        (5, "FFFFF2CC"),  // cần soát
+        (8, "FFE2EFDA"),  // chú giải: xanh (0-based 7 → r=8)
+        (9, "FFFFF2CC"),  // chú giải: vàng
         (10, "FFFADCE3"), // chú giải: hồng
     ];
     for (row_no, rgb) in expect {
@@ -2129,7 +2366,9 @@ fn t_export_xlsx_merged() -> Result<(), String> {
         english: vec![en_a.into(), en_b.into()],
         vietnamese: vec![vi_a.into(), vi_b.into()],
         rows,
-        options: AlignOptions { auto_threshold: 0.30 },
+        options: AlignOptions {
+            auto_threshold: 0.30,
+        },
         engine: "lexical".into(),
         reordered: false,
         undo_stack: Vec::new(),
@@ -2139,7 +2378,10 @@ fn t_export_xlsx_merged() -> Result<(), String> {
     let r = export_session(&session, ExportFormat::Xlsx)?;
     let bytes = r.bytes.as_ref().ok_or("xlsx phải trả bytes")?;
     if r.none_count != 1 || r.rows != 2 {
-        return Err(format!("rows/none phải 2/1, được {}/{}", r.rows, r.none_count));
+        return Err(format!(
+            "rows/none phải 2/1, được {}/{}",
+            r.rows, r.none_count
+        ));
     }
     let styles = zip_read(bytes, "xl/styles.xml")?;
     let sheet = zip_read(bytes, "xl/worksheets/sheet1.xml")?;
@@ -2206,7 +2448,9 @@ fn t_export_formula_guard() -> Result<(), String> {
         english: vec![en0.into()],
         vietnamese: vec![vi0.into(), en1.into()],
         rows,
-        options: AlignOptions { auto_threshold: 0.30 },
+        options: AlignOptions {
+            auto_threshold: 0.30,
+        },
         engine: "lexical".into(),
         reordered: false,
         undo_stack: Vec::new(),
@@ -2223,17 +2467,26 @@ fn t_export_formula_guard() -> Result<(), String> {
         // dòng 1: "0,auto_matched,0.900,\"'=cmd|…\",\"'+3996…\""
         if line.starts_with("0,") {
             if !line.contains("\"'=cmd|") {
-                return Err(format!("CSV: ô EN bắt đầu '=' phải có guard `'` — dòng: {}", line));
+                return Err(format!(
+                    "CSV: ô EN bắt đầu '=' phải có guard `'` — dòng: {}",
+                    line
+                ));
             }
             // ô VI không chứa , " \n nên RFC4180 không bọc quotes — guard `'+` theo sau dấu phẩy
             if !line.contains(",'+3996") {
-                return Err(format!("CSV: ô VI bắt đầu '+' phải có guard `'` — dòng: {}", line));
+                return Err(format!(
+                    "CSV: ô VI bắt đầu '+' phải có guard `'` — dòng: {}",
+                    line
+                ));
             }
         }
         // dòng 2: ô EN là `none` (nguyên văn, KHÔNG guard), ô VI bắt đầu bằng chữ
         if line.starts_with("1,") {
             if !line.contains(",none,") {
-                return Err(format!("CSV: `none` phải nguyên văn không guard — dòng: {}", line));
+                return Err(format!(
+                    "CSV: `none` phải nguyên văn không guard — dòng: {}",
+                    line
+                ));
             }
             if line.contains("'Đoạn") || line.contains("'Đ") {
                 return Err("CSV: ô bắt đầu bằng chữ thường không được thêm `'`".into());
@@ -2250,10 +2503,16 @@ fn t_export_formula_guard() -> Result<(), String> {
     let mut lines = tsv.lines();
     let l1 = lines.next().unwrap_or_default();
     if !l1.starts_with("'=cmd|") {
-        return Err(format!("TSV: ô EN đầu tiên phải bắt đầu bằng guard `'` — dòng: {}", l1));
+        return Err(format!(
+            "TSV: ô EN đầu tiên phải bắt đầu bằng guard `'` — dòng: {}",
+            l1
+        ));
     }
     if !l1.contains("\t'+3996") {
-        return Err(format!("TSV: ô VI bắt đầu '+' phải có guard `'` — dòng: {}", l1));
+        return Err(format!(
+            "TSV: ô VI bắt đầu '+' phải có guard `'` — dòng: {}",
+            l1
+        ));
     }
     let l2 = lines.next().unwrap_or_default();
     if !l2.starts_with("none\t") {
@@ -2290,7 +2549,9 @@ fn t_export_xlsx_no_formula() -> Result<(), String> {
         english: vec![en0.into()],
         vietnamese: vec![vi0.into()],
         rows,
-        options: AlignOptions { auto_threshold: 0.30 },
+        options: AlignOptions {
+            auto_threshold: 0.30,
+        },
         engine: "lexical".into(),
         reordered: false,
         undo_stack: Vec::new(),
@@ -2318,8 +2579,11 @@ fn t_export_xlsx_no_formula() -> Result<(), String> {
 /// (dán từ PDF/Word) — XLIFF/HTML/CSV xuất ra phải KHÔNG còn ký tự điều khiển
 /// (XLIFF 1.2 hợp lệ), còn chữ thường thì giữ nguyên.
 fn t_export_control_chars() -> Result<(), String> {
-    let dirty_en = format!("Clean text with control\u{0001}chars and\u{000B}vertical tab and\u{007F}del inside.");
-    let dirty_vi = format!("Văn bản kèm\u{0001}điều khiển và\u{000B}tab-dọc và\u{007F}del bên trong.");
+    let dirty_en = format!(
+        "Clean text with control\u{0001}chars and\u{000B}vertical tab and\u{007F}del inside."
+    );
+    let dirty_vi =
+        format!("Văn bản kèm\u{0001}điều khiển và\u{000B}tab-dọc và\u{007F}del bên trong.");
     let rows = vec![Row {
         index: 0,
         en_index: Some(0),
@@ -2339,7 +2603,9 @@ fn t_export_control_chars() -> Result<(), String> {
         english: vec![dirty_en],
         vietnamese: vec![dirty_vi],
         rows,
-        options: AlignOptions { auto_threshold: 0.30 },
+        options: AlignOptions {
+            auto_threshold: 0.30,
+        },
         engine: "lexical".into(),
         reordered: false,
         undo_stack: Vec::new(),
@@ -2351,13 +2617,24 @@ fn t_export_control_chars() -> Result<(), String> {
             (u < 0x20 && c != '\n' && c != '\r' && c != '\t') || u == 0x7f
         })
     };
-    for fmt in [ExportFormat::Xliff, ExportFormat::Html, ExportFormat::Csv, ExportFormat::Tsv] {
+    for fmt in [
+        ExportFormat::Xliff,
+        ExportFormat::Html,
+        ExportFormat::Csv,
+        ExportFormat::Tsv,
+    ] {
         let out = export_session(&session, fmt)?;
         if has_ctrl(&out.content) {
-            return Err(format!("{:?}: vẫn còn ký tự điều khiển trong file xuất", fmt));
+            return Err(format!(
+                "{:?}: vẫn còn ký tự điều khiển trong file xuất",
+                fmt
+            ));
         }
         if !out.content.contains("Clean text with control chars") {
-            return Err(format!("{:?}: chữ thường phải giữ nguyên (đã thay ctrl bằng space)", fmt));
+            return Err(format!(
+                "{:?}: chữ thường phải giữ nguyên (đã thay ctrl bằng space)",
+                fmt
+            ));
         }
     }
     // XLIFF phải parse được (kiểm nhanh: mở/két thẻ xliff + trans-unit + source/target cân nhau)
@@ -2391,7 +2668,8 @@ fn t_fetch_ssrf_guard() -> Result<(), String> {
             Ok(_) => return Err(format!("SSRF: {} phải bị chặn mà tải được", url)),
             Err(e) => {
                 // chặn phải vì lý do an toàn/giao thức, không phải vì mạng
-                if !e.contains("nội bộ") && !e.contains("http://") && !e.contains("phân giải") {
+                if !e.contains("nội bộ") && !e.contains("http://") && !e.contains("phân giải")
+                {
                     return Err(format!("{} bị lỗi vì lý do khác: {}", url, e));
                 }
             }
@@ -2485,7 +2763,10 @@ pub fn run_all() -> Vec<TestResult> {
         let (passed, detail) = match handle.join() {
             Ok(Ok(())) => (true, "đạt".to_string()),
             Ok(Err(e)) => (false, e),
-            Err(_) => (false, "PANIC — bài kiểm làm sập thread (đây chính là lỗi bản 1.x)".to_string()),
+            Err(_) => (
+                false,
+                "PANIC — bài kiểm làm sập thread (đây chính là lỗi bản 1.x)".to_string(),
+            ),
         };
         results.push(TestResult {
             name: name.to_string(),
