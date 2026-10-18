@@ -386,9 +386,16 @@ impl Session {
     // ========================= Chấm lại điểm (bản 2.5) =========================
 
     /// Lõi chấm lại 1 hàng (không đụng lịch sử) — dùng chung cho rescan_row và
-    /// rescan_all (bản 2.8). Trả (điểm, trạng thái, LaBSE đã dùng?).
-    /// Hàng phải ĐỦ hai phía (người gọi đã kiểm).
-    fn rescan_row_core(&self, row_index: usize) -> (f64, Status, bool) {
+    /// rescan_all (bản 2.8). `pair_cos` là nguồn cosine LaBSE: production truyền
+    /// `embedder::pair_cosine` (dò dịch vụ thật, tự fallback khi không chạy);
+    /// selftest TIÊM nguồn giả lập xác định (None = không LaBSE) để bài kiểm
+    /// KHÔNG phụ thuộc dịch vụ LaBSE ambient trên máy đang chạy (bản 2.8.1).
+    /// Trả (điểm, trạng thái, LaBSE đã dùng?). Hàng phải ĐỦ hai phía (người gọi đã kiểm).
+    fn rescan_row_core(
+        &self,
+        row_index: usize,
+        pair_cos: &dyn Fn(&str, &str) -> Option<f64>,
+    ) -> (f64, Status, bool) {
         let en_text = self.rows[row_index]
             .en_segments()
             .iter()
@@ -401,7 +408,7 @@ impl Session {
             .map(|(_, t)| *t)
             .collect::<Vec<&str>>()
             .join(" ");
-        let emb_cos = crate::embedder::pair_cosine(&en_text, &vi_text);
+        let emb_cos = pair_cos(&en_text, &vi_text);
         let raw = crate::aligner::rescore_pair(
             &self.english,
             &self.vietnamese,
@@ -424,6 +431,16 @@ impl Session {
     /// theo ngưỡng của phiên (≥ ngưỡng → tự khớp, dưới → cần soát).
     /// Trả về (điểm, trạng thái mới, LaBSE đã dùng?).
     pub fn rescan_row(&mut self, row_index: usize) -> Result<(f64, Status, bool), String> {
+        self.rescan_row_with(row_index, &crate::embedder::pair_cosine)
+    }
+
+    /// Biến thể cho phép TIÊM nguồn cosine LaBSE (selftest hermetic — bản 2.8.1):
+    /// truyền `&|_, _| None` để mô phỏng máy không có LaBSE một cách xác định.
+    pub fn rescan_row_with(
+        &mut self,
+        row_index: usize,
+        pair_cos: &dyn Fn(&str, &str) -> Option<f64>,
+    ) -> Result<(f64, Status, bool), String> {
         if row_index >= self.rows.len() {
             return Err(format!(
                 "Hàng {} không tồn tại (phiên có {} hàng).",
@@ -440,7 +457,7 @@ impl Session {
                 );
             }
         }
-        let (score, status, labse_used) = self.rescan_row_core(row_index);
+        let (score, status, labse_used) = self.rescan_row_core(row_index, pair_cos);
         self.push_history();
         let row = &mut self.rows[row_index];
         row.score = Some(score);
@@ -454,6 +471,14 @@ impl Session {
     /// cả loạt điểm/trạng thái cũ. Hàng một phía được bỏ qua (không chấm được).
     /// Trả về (số hàng đã chấm, LaBSE đã dùng ít nhất 1 lần?).
     pub fn rescan_all(&mut self) -> Result<(usize, bool), String> {
+        self.rescan_all_with(&crate::embedder::pair_cosine)
+    }
+
+    /// Biến thể cho phép TIÊM nguồn cosine LaBSE (selftest hermetic — bản 2.8.1).
+    pub fn rescan_all_with(
+        &mut self,
+        pair_cos: &dyn Fn(&str, &str) -> Option<f64>,
+    ) -> Result<(usize, bool), String> {
         let paired: Vec<usize> = self
             .rows
             .iter()
@@ -468,7 +493,7 @@ impl Session {
         let mut scanned = 0usize;
         self.push_history(); // MỘT snapshot cho cả lô (hoàn tác 1 nhấn)
         for i in paired {
-            let (score, status, labse_used) = self.rescan_row_core(i);
+            let (score, status, labse_used) = self.rescan_row_core(i, pair_cos);
             if labse_used {
                 labse_used_any = true;
             }

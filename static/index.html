@@ -532,7 +532,7 @@
 <footer class="statusbar">
   <span class="live"><span class="dot"></span> Hoạt động cục bộ 100%</span>
   <span id="portInfo">cổng 3000</span>
-  <span title="Bản 2.6 — bộ trích URL 3 tầng lọc chrom (menu/modal/caption ảnh) + LaBSE lưu labse/model, build lại không tải lại · Bản 2.5: khối kéo–thả, hoàn tác, Rescan · Bản 2.4: gộp hàng · Bản 2.3: trích <li>, 3 màu, CSV/HTML/XLIFF">bản 2.6 · REVA</span>
+  <span id="verInfo" title="Bản 2.8 — audit bảo mật (mặc định chỉ mở 127.0.0.1, chống SSRF khi tải URL, chống chèn công thức CSV/TSV) · xuất TMX 1.2 · Rescan tất cả · kéo–thả file .txt · Bản 2.7: Excel .xlsx tự tô màu ô theo trạng thái · Bản 2.6: trích URL 3 tầng lọc chrom (menu/modal/caption ảnh) · Bản 2.5: khối kéo–thả, hoàn tác, Rescan · Bản 2.4: gộp hàng · Bản 2.3: trích <li>, 3 màu, CSV/HTML/XLIFF — số bản tự lấy từ server, không phải ghi tay">REVA</span>
   <span>phiên: <span id="curSession">—</span></span>
   <span class="right">
     <span><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> ghép nhanh</span>
@@ -1531,6 +1531,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const st = await api("/api/model-status");
       updateEngineBadge(st);
       $("portInfo").textContent = "cổng " + location.port;
+      // BẢN 2.8.1 — số bản trong thanh trạng thái lấy TỪ SERVER (trước đây ghi tay
+      // “bản 2.6” nên lỗi thời ngay khi nâng cấp). Fetch fail → giữ chữ “REVA” trung tính.
+      if (st && st.version) $("verInfo").textContent = "bản " + String(st.version) + " · REVA";
     } catch {
       $("engineText").textContent = "Động cơ cục bộ (offline)";
     }

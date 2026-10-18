@@ -230,7 +230,7 @@ REVA là một binary Rust duy nhất (axum + tokio) nhúng sẵn giao diện, k
 
 ```bash
 cargo run --release        # build + chạy tại http://localhost:3000
-cargo test                 # 41 bài selftest (qua GET /api/selftest)
+cargo test                 # test biên dịch — 41 bài selftest đầy đủ chạy qua GET /api/selftest
 ```
 
 Đổi cổng: `PORT=1709 cargo run --release`. Đổi thư mục dữ liệu: `REVA_DATA_DIR=...`. Xem đầy đủ API + tài liệu kỹ thuật tại **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.

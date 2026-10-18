@@ -100,3 +100,40 @@
 4. Kéo–thả 2 file .txt thật từ Explorer/Finder vào 2 ô — xác nhận toast + số đoạn.
 5. Trên máy có mạng LAN khác: mặc định phải KHÔNG truy cập được từ máy khác (bind 127.0.0.1);
    đặt `REVA_BIND=0.0.0.0` rồi thử lại từ máy thứ hai.
+
+---
+
+## Audit #1 — PHỤ LỤC SAU PHÁT HÀNH (2026-10-19, người dùng báo từ máy thật Fedora)
+
+**Bối cảnh**: v2.8.0 chạy trên máy người dùng CÓ LaBSE thật (script build-and-run-linux.sh) →
+selftest **39/41** (bài 28 & 41 fail) + thanh trạng thái UI ghi "bản 2.6" lỗi thời.
+
+### Lỗi 5 — selftest phụ thuộc MÔI TRƯỜNG (không hermetic) [ĐÃ SỬA]
+
+- **Bằng chứng [ĐÃ CHẠY]**: dựng dịch vụ nhúng giả lập theo đúng hợp đồng
+  (`GET /health`, `POST /embed` → L2, mọi văn bản cùng véc-tơ = cosine 1.0 như LaBSE thật với
+  cặp dịch đúng) tại 127.0.0.1:3031 → binary v2.8.0 tái hiện ĐÚNG 39/41 với đúng 2 thông báo:
+  `rescan phải đúng công thức rescore_pair: 0.904 vs 0.760` và
+  `trong môi trường không LaBSE, labse_used phải là false`.
+- **Căn nguyên**: bài 28/41 gọi đường rescan dùng `embedder::pair_cosine` dò dịch vụ LaBSE
+  AMBIENT — sandbox không có LaBSE nên pass (may mắn), máy người dùng có LaBSE thì fail.
+  Bài kiểm không được phép phụ thuộc máy chạy nó.
+- **Sửa**: tách `rescan_row_with`/`rescan_all_with` nhận nguồn cosine TIÊM vào
+  (`&dyn Fn(&str,&str)->Option<f64>`); production truyền `embedder::pair_cosine`, bài 28/41
+  tiêm `None` (mô phỏng không LaBSE — xác định trên mọi máy) và `Some(1.0)` (LaBSE hoàn hảo —
+  kiểm thêm đường hoà trộn + `labse_used=true` + "chỉ nâng không hạ").
+- **Differential [ĐÃ CHẠY]**: cùng môi trường đó, binary 2.8.1 → **41/41**; tắt dịch vụ nhúng →
+  vẫn **41/41**. Đường production (API rescan) vẫn dùng LaBSE thật khi có (engine `lexical+labse`).
+
+### Lỗi 6 — chuỗi phiên bản ghi tay lỗi thời [ĐÃ SỬA]
+
+- Thanh trạng thái UI hard-code "bản 2.6 · REVA" từ bản 2.6 (ảnh chụp máy người dùng khoanh
+  "2.6?" khi app là 2.8.0); UA tải URL ghi tay "reva-tool/2.7".
+- **Sửa**: UI lấy số bản TỪ SERVER (`/api/model-status` có sẵn `version`) → "bản 2.8.1 · REVA";
+  fetch fail thì giữ chữ "REVA" trung tính (không bao giờ sai). UA = `env!("CARGO_PKG_VERSION")`.
+
+### Bài học quy trình
+
+Bài kiểm tích hợp phải hermetic: mọi phụ thuộc ngoài (dịch vụ, mạng, môi trường) phải được
+TIÊM hoặc GIẢ LẬP tường minh — "pass trong sandbox" chưa chứng minh "pass trên máy người dùng".
+Đã bổ sung bước tái hiện môi trường máy thật (dịch vụ nhúng giả lập) vào quy trình kiểm trước phát hành.

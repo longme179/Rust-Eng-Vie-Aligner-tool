@@ -296,7 +296,12 @@ pub fn fetch(url: &str) -> Result<FetchedPage, String> {
             .get(&current)
             .set(
                 "User-Agent",
-                "Mozilla/5.0 (compatible; reva-tool/2.7; +local-aligner)",
+                // BẢN 2.8.1 — UA lấy thẳng từ phiên bản Cargo (trước đây ghi tay
+                // "reva-tool/2.7" nên lỗi thời khi lên 2.8).
+                &format!(
+                    "Mozilla/5.0 (compatible; reva-tool/{}; +local-aligner)",
+                    env!("CARGO_PKG_VERSION")
+                ),
             )
             .set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
             .set("Accept-Language", "en,vi;q=0.9")

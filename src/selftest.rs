@@ -1743,8 +1743,14 @@ fn t_rescan_row() -> Result<(), String> {
         ),
     ];
     let mut s = manual_session(en, vi, rows);
-    // cặp A–A1: điểm chấm lại phải cao (≥ ngưỡng) → tự khớp
-    let (score_a, st_a, _) = s.rescan_row(0).map_err(|e| e)?;
+    // cặp A–A1: điểm chấm lại phải cao (≥ ngưỡng) → tự khớp.
+    // BẢN 2.8.1 — TIÊM nguồn cosine = None (mô phỏng máy không LaBSE) thay vì
+    // trông chờ môi trường: bài kiểm phải ĐẠT kể cả khi LaBSE thật đang chạy
+    // trên máy người dùng (lỗi 39/41 trên máy thật ngày 19/10/2026).
+    let (score_a, st_a, used_a) = s.rescan_row_with(0, &|_, _| None).map_err(|e| e)?;
+    if used_a {
+        return Err("tiêm nguồn None (không LaBSE) thì labse_used phải là false".into());
+    }
     if !(0.0..=1.0).contains(&score_a) {
         return Err(format!("điểm rescan phải trong 0..1, được {}", score_a));
     }
@@ -1754,7 +1760,7 @@ fn t_rescan_row() -> Result<(), String> {
             st_a
         ));
     }
-    // điểm của rescan phải KHỚP công thức thuần (không LaBSE trong môi trường selftest)
+    // điểm của rescan phải KHỚP công thức thuần (nguồn tiêm None → thuần từ vựng)
     let en_text = s.rows[0]
         .en_segments()
         .iter()
@@ -1774,20 +1780,37 @@ fn t_rescan_row() -> Result<(), String> {
             score_a, expect
         ));
     }
-    // hoà trộn LaBSE (cos=1) chỉ được NÂNG điểm, không hạ — dùng thẳng công thức
-    let blend_hi = aligner::rescore_pair(&s.english, &s.vietnamese, &en_text, &vi_text, Some(1.0));
-    if blend_hi + 1e-9 < expect {
-        return Err("rescore_pair với cos=1 phải ≥ điểm thuần từ vựng".into());
+    // BẢN 2.8.1 — đường CÓ LaBSE qua rescan thật (tiêm cos=1): labse_used=true,
+    // điểm đúng công thức hoà trộn và KHÔNG thấp hơn đường thuần từ vựng
+    // (chỉ được NÂNG điểm, không hạ).
+    let expect_hi = aligner::rescore_pair(&s.english, &s.vietnamese, &en_text, &vi_text, Some(1.0));
+    let (score_hi, _, used_hi) = s.rescan_row_with(0, &|_, _| Some(1.0)).map_err(|e| e)?;
+    if !used_hi {
+        return Err("tiêm nguồn Some(cos=1) thì labse_used phải là true".into());
+    }
+    if (score_hi - expect_hi).abs() > 0.002 {
+        return Err(format!(
+            "rescan với cos=1 phải đúng công thức hoà trộn: {:.3} vs {:.3}",
+            score_hi, expect_hi
+        ));
+    }
+    if score_hi + 1e-9 < score_a {
+        return Err(format!(
+            "hoà trộn cos=1 chỉ được NÂNG điểm rescan: {:.3} < {:.3}",
+            score_hi, score_a
+        ));
     }
     // hàng một phía phải từ chối kèm hướng dẫn (hàng 2: EN-only)
-    let err = s.rescan_row(2).map(|_| ()).unwrap_err();
+    let err = s.rescan_row_with(2, &|_, _| None).map(|_| ()).unwrap_err();
     if !err.contains("một phía") {
         return Err(format!(
             "thông báo từ chối phải nói rõ hàng một phía, được: {}",
             err
         ));
     }
-    // sau rescan vẫn hoàn tác được (trả lại điểm cũ)
+    // sau rescan vẫn hoàn tác được (trả lại điểm cũ) — 2 lần rescan hàng 0 →
+    // undo 2 nhấn trả về điểm gốc 0.95
+    s.undo().map_err(|e| e)?;
     s.undo().map_err(|e| e)?;
     if s.rows[0].score != Some(0.95) {
         return Err("hoàn tác rescan phải trả lại điểm cũ".into());
@@ -2909,16 +2932,19 @@ fn t_rescan_all() -> Result<(), String> {
     let orig_scores: Vec<Option<f64>> = s.rows.iter().map(|r| r.score).collect();
     let orig_statuses: Vec<Status> = s.rows.iter().map(|r| r.status).collect();
 
-    let (count, labse_used) = s.rescan_all()?;
+    // BẢN 2.8.1 — TIÊM nguồn cosine = None (mô phỏng máy không LaBSE) thay vì
+    // trông chờ môi trường: bài kiểm phải ĐẠT kể cả khi LaBSE thật đang chạy
+    // (lỗi 39/41 trên máy người dùng: labse_used=true chỉ vì dịch vụ ambient).
+    let (count, labse_used) = s.rescan_all_with(&|_, _| None)?;
     if count != 2 {
         return Err(format!(
             "rescan_all phải chấm 2 hàng đủ hai phía, được {}",
             count
         ));
     }
-    // sandbox không có LaBSE → labse_used = false; hai hàng đủ hai phía có điểm mới
+    // nguồn tiêm None → labse_used phải false (xác định, không phụ thuộc máy)
     if labse_used {
-        return Err("trong môi trường không LaBSE, labse_used phải là false".into());
+        return Err("nguồn tiêm None (không LaBSE) → labse_used phải là false".into());
     }
     for i in 0..2 {
         if s.rows[i].score.is_none() {
@@ -2950,6 +2976,26 @@ fn t_rescan_all() -> Result<(), String> {
     s.redo()?;
     if s.rows[0].score.is_none() || s.rows[1].score.is_none() {
         return Err("sau redo, hai hàng phải có điểm lại".into());
+    }
+    // BẢN 2.8.1 — đường CÓ LaBSE (tiêm cos=1): labse_used=true, điểm cả lô
+    // chỉ được NÂNG so với đường thuần từ vựng (hoà trộn chỉ-nâng không hạ).
+    let scores_before: Vec<Option<f64>> = s.rows.iter().map(|r| r.score).collect();
+    let (count_hi, labse_used_hi) = s.rescan_all_with(&|_, _| Some(1.0))?;
+    if count_hi != 2 || !labse_used_hi {
+        return Err(format!(
+            "nguồn tiêm Some(cos=1) → chấm đủ 2 hàng và labse_used=true, được {} / {}",
+            count_hi, labse_used_hi
+        ));
+    }
+    for i in 0..2 {
+        let lo = scores_before[i].unwrap_or(0.0);
+        let hi = s.rows[i].score.unwrap_or(0.0);
+        if hi + 1e-9 < lo {
+            return Err(format!(
+                "rescan_all hoà trộn cos=1 chỉ được NÂNG điểm hàng {}: {:.3} < {:.3}",
+                i, hi, lo
+            ));
+        }
     }
     // phiên chỉ có hàng một phía → báo lỗi rõ (không chặn hình)
     let mut only_one = s.clone();
