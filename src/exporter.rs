@@ -82,9 +82,20 @@ impl ExportFormat {
     }
 }
 
-/// Chuẩn hoá 1 dòng để không phá định dạng: bỏ xuống dòng, gộp khoảng trắng.
+/// Chuẩn hoá 1 dòng để không phá định dạng: bỏ xuống dòng, gộp khoảng trắng,
+/// và THAY ký tự điều khiển (0x00–0x1F, 0x7F) bằng space — [AUDIT 2026-10-18]:
+/// giữ cho XLIFF/HTML xuất ra luôn hợp lệ với văn bản chứa ký tự lạ từ PDF/Word.
 fn one_line(s: &str) -> String {
-    s.replace(['\n', '\r', '\t'], " ")
+    s.chars()
+        .map(|c| {
+            let u = c as u32;
+            if u < 0x20 || u == 0x7f {
+                ' ' // ký tự điều khiển → space (xong gộp khoảng trắng phía dưới)
+            } else {
+                c
+            }
+        })
+        .collect::<String>()
         .split_whitespace()
         .collect::<Vec<&str>>()
         .join(" ")
@@ -144,27 +155,57 @@ fn row_cells(r: &Row) -> (String, String, usize) {
     row_cells_sep(r, " ")
 }
 
-/// Escape một trường CSV theo RFC 4180: chứa `,` `"` `\n` `\r` → bọc `"`, `"` nội bộ → `""`.
-fn csv_field(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
+/// Phòng chèn công thức bảng tính ([AUDIT 2026-10-18] — CSV Injection / OWASP):
+/// ô bắt đầu bằng `=` `+` `-` `@` có thể bị Excel/LibreOffice/Sheets hiểu là CÔNG THỨC
+/// khi mở file CSV/TSV — thêm dấu `'` trước để luôn được coi là văn bản.
+/// Chỉ áp cho CSV/TSV (mở bằng Excel); xlsx ghi sẵn kiểu chuỗi nên không cần.
+fn guard_formula(s: &str) -> String {
+    match s.chars().next() {
+        Some(c) if matches!(c, '=' | '+' | '-' | '@') => format!("'{}", s),
+        _ => s.to_string(),
     }
 }
 
-/// Escape văn bản cho HTML.
+/// Escape một trường CSV theo RFC 4180: chứa `,` `"` `\n` `\r` → bọc `"`, `"` nội bộ → `""`.
+/// Kèm phòng chèn công thức: ký tự đầu là = + - @ thì thêm `'` trước.
+fn csv_field(s: &str) -> String {
+    let guarded = guard_formula(s);
+    if guarded.contains(',')
+        || guarded.contains('"')
+        || guarded.contains('\n')
+        || guarded.contains('\r')
+    {
+        format!("\"{}\"", guarded.replace('"', "\"\""))
+    } else {
+        guarded
+    }
+}
+
+/// Escape văn bản cho HTML (kèm loại bỏ ký tự điều khiển — [AUDIT 2026-10-18]).
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
+    s.chars()
+        .filter(|c| {
+            let u = *c as u32;
+            !(u < 0x20 || u == 0x7f) // HTML cũng bỏ ký tự điều khiển cho sạch
+        })
+        .collect::<String>()
+        .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
 }
 
-/// Escape văn bản cho XML.
+/// Escape văn bản cho XML (kèm loại bỏ ký tự điều khiển không hợp lệ XML 1.0 —
+/// [AUDIT 2026-10-18]: 0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F làm XLIFF hỏng).
 fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
+    s.chars()
+        .filter(|c| {
+            let u = *c as u32;
+            !(u < 0x20 || u == 0x7f)
+        })
+        .collect::<String>()
+        .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
@@ -225,9 +266,10 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
             for r in &session.rows {
                 let (en, vi, none) = row_cells(r);
                 none_count += none;
-                body.push_str(&en);
+                // chống chèn công thức khi mở TSV bằng Excel ([AUDIT 2026-10-18])
+                body.push_str(&guard_formula(&en));
                 body.push('\t');
-                body.push_str(&vi);
+                body.push_str(&guard_formula(&vi));
                 body.push('\n');
             }
         }

@@ -411,7 +411,7 @@
   </div>
   <div class="top-actions">
     <button class="engine-badge" id="engineBadge" type="button" title="Động cơ ghép — nhấn để xem cách bật LaBSE (chế độ chính xác cao)"><span class="dot" aria-hidden="true"></span><span id="engineText" class="etext">đang kiểm tra…</span></button>
-    <button class="btn" id="btnSelftest" title="Chạy 33 bài tự kiểm nội bộ">🧪 Tự kiểm tra</button>
+    <button class="btn" id="btnSelftest" title="Chạy bài tự kiểm nội bộ">🧪 Tự kiểm tra</button>
     <button class="btn" id="btnDrawer" title="Danh sách các phiên đã lưu">📂 Các phiên <span class="n" id="drawerCount" style="font-family:var(--mono)"></span></button>
   </div>
 </header>
@@ -1265,7 +1265,7 @@ async function fetchUrl(side){
 /* ================= Selftest ================= */
 async function runSelftest(){
   $("stModal").classList.add("show");
-  $("stBody").innerHTML = `<p style="color:var(--muted)">Đang chạy 33 bài kiểm tra nội bộ…</p>`;
+  $("stBody").innerHTML = `<p style="color:var(--muted)">Đang chạy bài kiểm tra nội bộ…</p>`;
   try {
     const d = await api("/api/selftest");
     const pills = `

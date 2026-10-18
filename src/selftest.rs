@@ -16,6 +16,9 @@
 //! xuất sau khi đổi thứ tự (tha thứ I3, I1 vẫn gắt), và bộ lỗi đầu vào của move_block.
 //! Bản 2.7 thêm 2 bài Excel (.xlsx): tô màu ô theo trạng thái hàng + hàng gộp —
 //! đọc lại file zip thật (styles/sheet/sharedStrings) kiểm chứng fill từng hàng.
+//! [AUDIT 2026-10-18] thêm 4 bài: CSV/TSV chống chèn công thức (=+-@), xlsx ghi chuỗi
+//! chứ không phải công thức, loại ký tự điều khiển (XLIFF/HTML hợp lệ), chặn SSRF
+//! (địa chỉ nội bộ) + phân giải redirect.
 
 use crate::aligner::{self, AlignOptions, Row, Status};
 use crate::exporter::{export_session, ExportFormat};
@@ -2163,6 +2166,274 @@ fn t_export_xlsx_merged() -> Result<(), String> {
     Ok(())
 }
 
+/// 36. [AUDIT 2026-10-18] CSV/TSV PHÒNG CHÈN CÔNG THỨC: ô bắt đầu bằng = + - @
+/// (vd "=cmd|' /C calc'!A1" trong văn bản được dán vào) phải được thêm dấu `'`
+/// trước khi ghi ra CSV/TSV — Excel mở file sẽ coi là văn bản, không chạy công thức.
+/// `none` và số liệu/khác đầu (chữ, số) KHÔNG bị thêm `'`.
+fn t_export_formula_guard() -> Result<(), String> {
+    let en0 = "=cmd|' /C calc'!A1 and =WEBSERVICE(\"http://evil.example/\") in one line.";
+    let vi0 = "+3996 và -1975 là năm lịch sử; @home cũng bị coi là công thức.";
+    let en1 = "Đoạn bình thường bắt đầu bằng chữ — không thêm gì.";
+    let rows = vec![
+        Row {
+            index: 0,
+            en_index: Some(0),
+            vi_index: Some(0),
+            en: Some(en0.into()),
+            vi: Some(vi0.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::AutoMatched,
+            score: Some(0.9),
+        },
+        Row {
+            index: 1,
+            en_index: None,
+            vi_index: Some(1),
+            en: None,
+            vi: Some(en1.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::Unmatched,
+            score: None,
+        },
+    ];
+    let session = Session {
+        id: "audit-formula".into(),
+        title: "audit formula guard".into(),
+        created_at: 1,
+        updated_at: 1,
+        english: vec![en0.into()],
+        vietnamese: vec![vi0.into(), en1.into()],
+        rows,
+        options: AlignOptions { auto_threshold: 0.30 },
+        engine: "lexical".into(),
+        reordered: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+    };
+
+    // ---- CSV ----
+    let csv = export_session(&session, ExportFormat::Csv)?.content;
+    for line in csv.lines() {
+        if line.starts_with("index,") {
+            continue; // header
+        }
+        // các trường dữ liệu (en, vi) phải bắt đầu bằng ' khi nội dung gốc bắt đầu = + - @
+        // dòng 1: "0,auto_matched,0.900,\"'=cmd|…\",\"'+3996…\""
+        if line.starts_with("0,") {
+            if !line.contains("\"'=cmd|") {
+                return Err(format!("CSV: ô EN bắt đầu '=' phải có guard `'` — dòng: {}", line));
+            }
+            // ô VI không chứa , " \n nên RFC4180 không bọc quotes — guard `'+` theo sau dấu phẩy
+            if !line.contains(",'+3996") {
+                return Err(format!("CSV: ô VI bắt đầu '+' phải có guard `'` — dòng: {}", line));
+            }
+        }
+        // dòng 2: ô EN là `none` (nguyên văn, KHÔNG guard), ô VI bắt đầu bằng chữ
+        if line.starts_with("1,") {
+            if !line.contains(",none,") {
+                return Err(format!("CSV: `none` phải nguyên văn không guard — dòng: {}", line));
+            }
+            if line.contains("'Đoạn") || line.contains("'Đ") {
+                return Err("CSV: ô bắt đầu bằng chữ thường không được thêm `'`".into());
+            }
+        }
+    }
+    // − và −@ trong THÂN chuỗi (không đầu ô) không bị thêm gì — kiểm nguyên văn một phần
+    if !csv.contains("=WEBSERVICE") {
+        return Err("CSV: phần thân ô vẫn giữ nguyên văn bản (chỉ đầu ô được guard)".into());
+    }
+
+    // ---- TSV ----
+    let tsv = export_session(&session, ExportFormat::Tsv)?.content;
+    let mut lines = tsv.lines();
+    let l1 = lines.next().unwrap_or_default();
+    if !l1.starts_with("'=cmd|") {
+        return Err(format!("TSV: ô EN đầu tiên phải bắt đầu bằng guard `'` — dòng: {}", l1));
+    }
+    if !l1.contains("\t'+3996") {
+        return Err(format!("TSV: ô VI bắt đầu '+' phải có guard `'` — dòng: {}", l1));
+    }
+    let l2 = lines.next().unwrap_or_default();
+    if !l2.starts_with("none\t") {
+        return Err(format!("TSV: `none` phải nguyên văn ở đầu — dòng: {}", l2));
+    }
+    if l2.contains("'Đoạn") {
+        return Err("TSV: ô bắt đầu bằng chữ không được thêm `'`".into());
+    }
+    Ok(())
+}
+
+/// 37. [AUDIT 2026-10-18] XLSX ghi CHUỖI, không phải công thức: đoạn bắt đầu bằng
+/// `=` (vd "=1+1") phải nằm trong sharedStrings (kiểu chuỗi) và sheet KHÔNG có
+/// phần tử `<f>` (formula) — mở file không bao giờ thực thi gì.
+fn t_export_xlsx_no_formula() -> Result<(), String> {
+    let en0 = "=1+1 looks like a formula but is just translated text here.";
+    let vi0 = "=1+1 trông như công thức nhưng chỉ là văn bản dịch.";
+    let rows = vec![Row {
+        index: 0,
+        en_index: Some(0),
+        vi_index: Some(0),
+        en: Some(en0.into()),
+        vi: Some(vi0.into()),
+        en_extra: Vec::new(),
+        vi_extra: Vec::new(),
+        status: Status::AutoMatched,
+        score: Some(0.9),
+    }];
+    let session = Session {
+        id: "audit-xlsxformula".into(),
+        title: "audit xlsx formula".into(),
+        created_at: 1,
+        updated_at: 1,
+        english: vec![en0.into()],
+        vietnamese: vec![vi0.into()],
+        rows,
+        options: AlignOptions { auto_threshold: 0.30 },
+        engine: "lexical".into(),
+        reordered: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+    };
+    let r = export_session(&session, ExportFormat::Xlsx)?;
+    let bytes = r.bytes.as_ref().ok_or("xlsx phải trả bytes")?;
+    let sheet = zip_read(bytes, "xl/worksheets/sheet1.xml")?;
+    let shared = zip_read(bytes, "xl/sharedStrings.xml")?;
+    if sheet.contains("<f>") || sheet.contains("<f ") {
+        return Err("sheet1.xml không được chứa phần tử <f> (formula)".into());
+    }
+    // chuỗi "=1+1" phải được ghi là chuỗi dùng chung (đã escape &lt; không cần, chỉ =)
+    if !shared.contains("=1+1") {
+        return Err("sharedStrings phải chứa nguyên văn chuỗi '=1+1'".into());
+    }
+    // ô chứa nó phải là kiểu chuỗi (t=\"s\" hoặc t=\"inlineStr\"), không phải công thức
+    if !sheet.contains("t=\"s\"") {
+        return Err("ô dữ liệu phải mang kiểu chuỗi t=\"s\"".into());
+    }
+    Ok(())
+}
+
+/// 38. [AUDIT 2026-10-18] KÝ TỰ ĐIỀU KHIỂN: văn bản chứa 0x01, 0x0B, 0x7F…
+/// (dán từ PDF/Word) — XLIFF/HTML/CSV xuất ra phải KHÔNG còn ký tự điều khiển
+/// (XLIFF 1.2 hợp lệ), còn chữ thường thì giữ nguyên.
+fn t_export_control_chars() -> Result<(), String> {
+    let dirty_en = format!("Clean text with control\u{0001}chars and\u{000B}vertical tab and\u{007F}del inside.");
+    let dirty_vi = format!("Văn bản kèm\u{0001}điều khiển và\u{000B}tab-dọc và\u{007F}del bên trong.");
+    let rows = vec![Row {
+        index: 0,
+        en_index: Some(0),
+        vi_index: Some(0),
+        en: Some(dirty_en.clone()),
+        vi: Some(dirty_vi.clone()),
+        en_extra: Vec::new(),
+        vi_extra: Vec::new(),
+        status: Status::AutoMatched,
+        score: Some(0.9),
+    }];
+    let session = Session {
+        id: "audit-ctrl".into(),
+        title: "audit control chars".into(),
+        created_at: 1,
+        updated_at: 1,
+        english: vec![dirty_en],
+        vietnamese: vec![dirty_vi],
+        rows,
+        options: AlignOptions { auto_threshold: 0.30 },
+        engine: "lexical".into(),
+        reordered: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+    };
+    let has_ctrl = |s: &str| {
+        s.chars().any(|c| {
+            let u = c as u32;
+            (u < 0x20 && c != '\n' && c != '\r' && c != '\t') || u == 0x7f
+        })
+    };
+    for fmt in [ExportFormat::Xliff, ExportFormat::Html, ExportFormat::Csv, ExportFormat::Tsv] {
+        let out = export_session(&session, fmt)?;
+        if has_ctrl(&out.content) {
+            return Err(format!("{:?}: vẫn còn ký tự điều khiển trong file xuất", fmt));
+        }
+        if !out.content.contains("Clean text with control chars") {
+            return Err(format!("{:?}: chữ thường phải giữ nguyên (đã thay ctrl bằng space)", fmt));
+        }
+    }
+    // XLIFF phải parse được (kiểm nhanh: mở/két thẻ xliff + trans-unit + source/target cân nhau)
+    let xliff = export_session(&session, ExportFormat::Xliff)?.content;
+    if xliff.matches("<trans-unit").count() != 1 || xliff.matches("</trans-unit>").count() != 1 {
+        return Err("XLIFF: số thẻ trans-unit mở/không khớp".into());
+    }
+    if xliff.matches('<').count() != xliff.matches('>').count() {
+        return Err("XLIFF: số dấu < và > không cân — nghi escape hỏng".into());
+    }
+    Ok(())
+}
+
+/// 39. [AUDIT 2026-10-18] CHỐNG SSRF: tải URL trỏ về địa chỉ nội bộ (loopback /
+/// private / link-local / IPv6 loopback) phải bị CHẶN với thông báo rõ — dùng IP
+/// literal nên không chạm mạng. Phân giải redirect (hàm thuần) đúng mọi dạng.
+fn t_fetch_ssrf_guard() -> Result<(), String> {
+    for url in [
+        "http://127.0.0.1:3031/embed",
+        "http://localhost/",
+        "http://[::1]:8080/",
+        "http://10.0.0.5/",
+        "http://172.16.1.1/",
+        "http://192.168.1.1/admin",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://100.64.0.1/",
+        "http://0.0.0.0/",
+        "ftp://example.com/",
+    ] {
+        match fetcher::fetch(url) {
+            Ok(_) => return Err(format!("SSRF: {} phải bị chặn mà tải được", url)),
+            Err(e) => {
+                // chặn phải vì lý do an toàn/giao thức, không phải vì mạng
+                if !e.contains("nội bộ") && !e.contains("http://") && !e.contains("phân giải") {
+                    return Err(format!("{} bị lỗi vì lý do khác: {}", url, e));
+                }
+            }
+        }
+    }
+    // hàm phân giải redirect (thuần, không mạng)
+    use fetcher::resolve_redirect_for_test as rr;
+    if rr("https://a.example/x/y", "https://b.example/z") != Some("https://b.example/z".into()) {
+        return Err("redirect tuyệt đối sai".into());
+    }
+    if rr("https://a.example/x/y", "//b.example/z") != Some("https://b.example/z".into()) {
+        return Err("redirect scheme-relative sai".into());
+    }
+    if rr("https://a.example/x/y", "/root") != Some("https://a.example/root".into()) {
+        return Err("redirect root-relative sai".into());
+    }
+    if rr("https://a.example/dir/page?q=1", "next") != Some("https://a.example/dir/next".into()) {
+        return Err("redirect tương đối sai".into());
+    }
+    if rr("https://a.example/dir/page", "../up") != Some("https://a.example/up".into()) {
+        return Err("redirect '..' sai".into());
+    }
+    if rr("https://a.example/dir/page", "") != None {
+        return Err("Location rỗng phải trả None".into());
+    }
+    // host:port parser (trả Result — so qua .ok())
+    use fetcher::url_host_port_for_test as hp;
+    if hp("http://example.com/a?b").ok() != Some(("example.com".into(), 80)) {
+        return Err("url_host_port: host/port mặc định sai".into());
+    }
+    if hp("https://example.com:8443/x").ok() != Some(("example.com".into(), 8443)) {
+        return Err("url_host_port: cổng tuỳ chỉnh sai".into());
+    }
+    if hp("http://user:pass@10.1.2.3:999/x").ok() != Some(("10.1.2.3".into(), 999)) {
+        return Err("url_host_port: bỏ userinfo sai".into());
+    }
+    if hp("http://[2001:db8::1]:8080/x").ok() != Some(("2001:db8::1".into(), 8080)) {
+        return Err("url_host_port: IPv6 ngoặc vuông sai".into());
+    }
+    Ok(())
+}
+
 /// Chạy toàn bộ bộ kiểm — mỗi bài trong thread riêng (panic = FAIL, không sập tiến trình).
 pub fn run_all() -> Vec<TestResult> {
     let tests: Vec<(&str, fn() -> Result<(), String>)> = vec![
@@ -2201,6 +2472,10 @@ pub fn run_all() -> Vec<TestResult> {
         ("33. [BẢN 2.6] \"link farm\": mật độ link nhận diện menu không cần class", t_link_farm_extract),
         ("34. [BẢN 2.7] Excel .xlsx: tô màu ô theo trạng thái hàng (đọc lại zip kiểm fill từng hàng)", t_export_xlsx_colors),
         ("35. [BẢN 2.7] xlsx hàng gộp nhiều đoạn chung một ô + alias excel + meta file", t_export_xlsx_merged),
+        ("36. [AUDIT 2026-10-18] CSV/TSV chống chèn công thức: đầu ô = + - @ thêm dấu '", t_export_formula_guard),
+        ("37. [AUDIT 2026-10-18] xlsx ghi CHUỖI không phải công thức (không có <f>)", t_export_xlsx_no_formula),
+        ("38. [AUDIT 2026-10-18] loại ký tự điều khiển khi xuất (XLIFF/HTML hợp lệ)", t_export_control_chars),
+        ("39. [AUDIT 2026-10-18] chặn SSRF (địa chỉ nội bộ) + phân giải redirect", t_fetch_ssrf_guard),
     ];
 
     let mut results = Vec::with_capacity(tests.len());

@@ -722,6 +722,14 @@ async fn main() {
         .and_then(|p| p.trim().parse().ok())
         .unwrap_or(3000);
 
+    // [AUDIT 2026-10-18] mặc định CHỈ mở trên máy của chính mình (127.0.0.1) — đúng
+    // lời hứa "chạy 100% cục bộ". Muốn chia sẻ trong mạng LAN: REVA_BIND=0.0.0.0.
+    let bind_host = std::env::var("REVA_BIND")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+
     let data_dir = resolve_data_dir();
     let sessions_dir = data_dir.join("sessions");
     let store = session::SessionStore::open(sessions_dir);
@@ -748,11 +756,11 @@ async fn main() {
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
         .with_state(state);
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("{}:{}", bind_host, port);
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[reva-tool] KHÔNG mở được cổng {}: {}", port, e);
+            eprintln!("[reva-tool] KHÔNG mở được {}: {}", addr, e);
             eprintln!("[reva-tool] cổng có thể đang bận — thử: PORT=3001 ./reva-tool");
             std::process::exit(1);
         }
@@ -760,6 +768,9 @@ async fn main() {
 
     println!("[reva-tool] v{} — REVA tool, ghép & sắp đoạn văn bản Anh–Việt (tiền thân: Cánh đôi Anh–Việt)", env!("CARGO_PKG_VERSION"));
     println!("[reva-tool] chạy tại http://localhost:{} (giao diện + API, tất cả cục bộ)", port);
+    if bind_host != "127.0.0.1" {
+        println!("[reva-tool] chú ý: đang lắng nghe trên {} — máy khác trong mạng có thể truy cập. Muốn chỉ mình mình dùng thì bỏ biến REVA_BIND rồi chạy lại.", bind_host);
+    }
     println!("[reva-tool] thư mục dữ liệu: {}", data_dir.display());
     println!("[reva-tool] LaBSE (tuỳ chọn): {} — chạy labse/labse_service.py để bật chế độ chính xác cao", embedder::labse_url());
     println!("[reva-tool] nhấn Ctrl+C để dừng");

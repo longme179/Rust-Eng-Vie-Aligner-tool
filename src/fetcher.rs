@@ -31,10 +31,14 @@
 //!   * độ dài tối thiểu: p ≥ 30 ký tự (như cũ), li ≥ 12 ký tự (mục danh sách
 //!     thường ngắn hơn đoạn văn).
 
+use std::net::{IpAddr, ToSocketAddrs};
 use std::time::Duration;
 
 const MAX_BYTES: usize = 6 * 1024 * 1024; // 6 MB
 const MAX_PARAGRAPHS: usize = 800;
+/// Số bước chuyển hướng (redirect) tối đa — REVA tự theo TỪNG BƯỚC và kiểm tra
+/// an toàn địa chỉ trước khi đi tiếp (chống redirect về địa chỉ nội bộ).
+const MAX_REDIRECTS: usize = 5;
 const MIN_PARA_LEN: usize = 30; // bỏ đoạn quá ngắn (menu, nút…)
 const MIN_ITEM_LEN: usize = 12; // mục danh sách được ngắn hơn đoạn văn
 /// li mà phần văn bản NGOÀI thẻ <a> ngắn hơn ngưỡng này ⇒ li "chỉ toàn link" (link-embed,
@@ -75,24 +79,241 @@ pub struct FetchedPage {
     pub bytes: usize,
 }
 
-pub fn fetch(url: &str) -> Result<FetchedPage, String> {
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("URL phải bắt đầu bằng http:// hoặc https://".into());
+/// Địa chỉ IP có thuộc dải "nội bộ/không nên tự ý tải" không:
+/// loopback, private (10/8, 172.16/12, 192.168/16), link-local, unique-local IPv6,
+/// multicast, broadcast, unspecified, 0.0.0.0/8, CGNAT 100.64/10, dải tài liệu.
+/// [AUDIT 2026-10-18] chống SSRF: chỉ tải trang công khai.
+fn ip_is_internal(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_multicast()
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+                || v4.is_documentation()
+                || o[0] == 0 // 0.0.0.0/8 "this network"
+                || (o[0] == 100 && (o[1] & 0xc0) == 64) // 100.64.0.0/10 CGNAT
+        }
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            v6.is_loopback()
+                || v6.is_multicast()
+                || v6.is_unspecified()
+                || (s[0] & 0xfe00) == 0xfc00 // fc00::/7 unique-local
+                || (s[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
+        }
     }
+}
+
+/// Tách (host, port) từ URL http/https — hỗ trợ IPv6 trong ngoặc vuông, bỏ userinfo.
+/// KHÔNG tải gì cả — chỉ để kiểm tra an toàn trước khi gọi mạng.
+fn url_host_port(url: &str) -> Result<(String, u16), String> {
+    let (scheme, rest) = if let Some(r) = url.strip_prefix("https://") {
+        ("https", r)
+    } else if let Some(r) = url.strip_prefix("http://") {
+        ("http", r)
+    } else {
+        return Err("URL phải bắt đầu bằng http:// hoặc https://".into());
+    };
+    // cắt phần path/query/fragment
+    let authority_end = rest
+        .find(['/', '?', '#'])
+        .unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    // bỏ userinfo "user:pass@host" (hiếm nhưng hợp lệ theo RFC)
+    let hostport = match authority.rfind('@') {
+        Some(p) => &authority[p + 1..],
+        None => authority,
+    };
+    let default_port = if scheme == "https" { 443 } else { 80 };
+    let (host, port) = if let Some(stripped) = hostport.strip_prefix('[') {
+        // IPv6 [::1]:8080
+        match stripped.find(']') {
+            Some(e) => {
+                let h = &stripped[..e];
+                let after = &stripped[e + 1..];
+                let p = match after.strip_prefix(':') {
+                    Some(pstr) => pstr
+                        .parse::<u16>()
+                        .map_err(|_| "Cổng trong URL không hợp lệ.".to_string())?,
+                    None => default_port,
+                };
+                (h.to_string(), p)
+            }
+            None => return Err("URL IPv6 thiếu dấu ']'.".into()),
+        }
+    } else {
+        match hostport.rfind(':') {
+            Some(pos) => {
+                let pstr = &hostport[pos + 1..];
+                if pstr.is_empty() {
+                    (hostport[..pos].to_string(), default_port)
+                } else {
+                    let port = pstr
+                        .parse::<u16>()
+                        .map_err(|_| "Cổng trong URL không hợp lệ.".to_string())?;
+                    (hostport[..pos].to_string(), port)
+                }
+            }
+            None => (hostport.to_string(), default_port),
+        }
+    };
+    if host.is_empty() {
+        return Err("URL thiếu tên máy chủ.".into());
+    }
+    Ok((host, port))
+}
+
+/// Kiểm tra URL có trỏ tới máy chủ CÔNG KHAI không (chống SSRF):
+/// host là IP literal nội bộ → chặn; host là tên miền → phân giải DNS và chặn
+/// nếu CÓ ÍT NHẤT MỘT địa chỉ trả về là địa chỉ nội bộ.
+fn validate_public_url(url: &str) -> Result<(), String> {
+    let (host, port) = url_host_port(url)?;
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if ip_is_internal(ip) {
+            return Err(format!(
+                "Không tải từ địa chỉ nội bộ {} — REVA chỉ tải trang web công khai.",
+                ip
+            ));
+        }
+        return Ok(());
+    }
+    let addrs: Vec<std::net::SocketAddr> = (host.as_str(), port)
+        .to_socket_addrs()
+        .map_err(|e| format!("Không phân giải được tên máy chủ {}: {}", host, e))?
+        .collect();
+    if addrs.is_empty() {
+        return Err(format!("Không tìm thấy địa chỉ cho máy chủ {}.", host));
+    }
+    for a in &addrs {
+        if ip_is_internal(a.ip()) {
+            return Err(format!(
+                "Máy chủ {} trỏ về địa chỉ nội bộ {} — không tải.",
+                host, a.ip()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Nối Location của redirect với URL hiện tại: hỗ trợ tuyệt đối (http/https),
+/// "//host/…" (scheme-relative), "/đường-dẫn" (root-relative) và tương đối
+/// (kèm làm sạch "."/".." của segment).
+fn resolve_redirect(base: &str, location: &str) -> Option<String> {
+    let loc = location.trim();
+    if loc.is_empty() {
+        return None;
+    }
+    if loc.starts_with("http://") || loc.starts_with("https://") {
+        return Some(loc.to_string());
+    }
+    if loc.starts_with("//") {
+        let scheme = if base.starts_with("http://") { "http" } else { "https" };
+        return Some(format!("{}:{}", scheme, loc));
+    }
+    // origin = scheme://authority
+    let after = base.find("://")? + 3;
+    let authority_end = base[after..]
+        .find(['/', '?', '#'])
+        .map(|p| after + p)
+        .unwrap_or(base.len());
+    let origin = &base[..authority_end];
+    if loc.starts_with('/') {
+        return Some(format!("{}{}", origin, loc));
+    }
+    // tương đối: nối vào "thư mục" của path hiện tại rồi làm sạch . / ..
+    let path_start = authority_end;
+    let dir_end = base[path_start..]
+        .rfind('/')
+        .map(|p| path_start + p + 1)
+        .unwrap_or(path_start);
+    let joined = format!("{}{}", &base[..dir_end], loc);
+    // làm sạch segment "." và ".."
+    let (j_after, j_rest) = {
+        let a = joined.find("://")? + 3;
+        let end = joined[a..]
+            .find(['/', '?', '#'])
+            .map(|p| a + p)
+            .unwrap_or(joined.len());
+        (end, &joined[end..])
+    };
+    let mut segs: Vec<&str> = Vec::new();
+    for s in j_rest.split('/') {
+        match s {
+            "." => {}
+            ".." => {
+                segs.pop();
+            }
+            _ => segs.push(s),
+        }
+    }
+    Some(format!("{}{}", &joined[..j_after], segs.join("/")))
+}
+
+/// Cho selftest bài 39 — truy cập hàm nội bộ (phân giải redirect, tách host:port).
+pub fn resolve_redirect_for_test(base: &str, location: &str) -> Option<String> {
+    resolve_redirect(base, location)
+}
+
+/// Cho selftest bài 39.
+pub fn url_host_port_for_test(url: &str) -> Result<(String, u16), String> {
+    url_host_port(url)
+}
+
+pub fn fetch(url: &str) -> Result<FetchedPage, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(25))
-        .redirects(5)
+        .redirects(0) // tự theo redirect để KIỂM TRA AN TOÀN từng bước đi tới
         .build();
-    let resp = agent
-        .get(url)
-        .set(
-            "User-Agent",
-            "Mozilla/5.0 (compatible; reva-tool/2.7.1; +local-aligner)",
-        )
-        .set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
-        .set("Accept-Language", "en,vi;q=0.9")
-        .call()
-        .map_err(|e| format!("Không tải được trang: {}", e))?;
+    let mut current = url.to_string();
+    let mut hops = 0usize;
+    let resp = loop {
+        validate_public_url(&current)?;
+        let r = agent
+            .get(&current)
+            .set(
+                "User-Agent",
+                "Mozilla/5.0 (compatible; reva-tool/2.7; +local-aligner)",
+            )
+            .set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+            .set("Accept-Language", "en,vi;q=0.9")
+            .call()
+            .map_err(|e| format!("Không tải được trang: {}", e))?;
+        let status = r.status();
+        if (300..400).contains(&status) {
+            let loc = r.header("location").map(|s| s.to_string());
+            match loc {
+                Some(loc) => {
+                    if loc.contains("://")
+                        && !loc.starts_with("http://")
+                        && !loc.starts_with("https://")
+                    {
+                        return Err(format!(
+                            "Trang chuyển hướng tới giao thức không hỗ trợ: {}",
+                            loc
+                        ));
+                    }
+                    if hops >= MAX_REDIRECTS {
+                        return Err("Quá nhiều bước chuyển hướng (redirect) — từ bỏ.".into());
+                    }
+                    hops += 1;
+                    current = resolve_redirect(&current, &loc)
+                        .ok_or_else(|| "Đường dẫn chuyển hướng không đọc được.".to_string())?;
+                    continue;
+                }
+                None => {
+                    return Err(format!(
+                        "Trang trả về mã chuyển hướng {} mà không có địa chỉ mới.",
+                        status
+                    ));
+                }
+            }
+        }
+        break r;
+    };
 
     let mut reader = resp.into_reader();
     let mut raw: Vec<u8> = Vec::with_capacity(64 * 1024);
@@ -120,7 +341,7 @@ pub fn fetch(url: &str) -> Result<FetchedPage, String> {
         return Err("Không tìm thấy đoạn văn bản (<p>) hay mục danh sách (<li>) nào trong trang — có thể trang cần JavaScript hoặc chặn truy cập.".into());
     }
     Ok(FetchedPage {
-        url: url.to_string(),
+        url: current,
         title,
         paragraphs,
         bytes: raw.len(),
