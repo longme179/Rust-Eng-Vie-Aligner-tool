@@ -185,7 +185,8 @@ impl Session {
         match self.undo_stack.pop() {
             None => Err("Không còn thao tác nào để hoàn tác.".into()),
             Some(prev) => {
-                self.redo_stack.push(std::mem::replace(&mut self.rows, prev));
+                self.redo_stack
+                    .push(std::mem::replace(&mut self.rows, prev));
                 self.reindex();
                 self.reordered = !self.is_monotonic();
                 self.updated_at = now_ms();
@@ -199,7 +200,8 @@ impl Session {
         match self.redo_stack.pop() {
             None => Err("Không còn thao tác nào để làm lại.".into()),
             Some(next) => {
-                self.undo_stack.push(std::mem::replace(&mut self.rows, next));
+                self.undo_stack
+                    .push(std::mem::replace(&mut self.rows, next));
                 self.reindex();
                 self.reordered = !self.is_monotonic();
                 self.updated_at = now_ms();
@@ -317,7 +319,11 @@ impl Session {
             // ---- 2a) chèn vào hàng đích (hiện có)
             let mut target_blocks = row_side_blocks(&self.rows[tr], side);
             let tp = to_pos.min(target_blocks.len());
-            let tp = if tr == from_row && from_pos < tp { tp - 1 } else { tp };
+            let tp = if tr == from_row && from_pos < tp {
+                tp - 1
+            } else {
+                tp
+            };
             target_blocks.insert(tp, block);
             set_row_side_blocks(&mut self.rows[tr], side, target_blocks);
         } else {
@@ -365,7 +371,11 @@ impl Session {
         let focus = self
             .rows
             .iter()
-            .position(|r| row_side_blocks(r, side).iter().any(|s| s.index == block_orig_index))
+            .position(|r| {
+                row_side_blocks(r, side)
+                    .iter()
+                    .any(|s| s.index == block_orig_index)
+            })
             .unwrap_or(0);
         self.reindex();
         self.reordered = !self.is_monotonic();
@@ -442,7 +452,11 @@ impl Session {
     ///   (cặp đơn giản vẫn ra 2 hàng như bản cũ). Hỗ trợ HOÀN TÁC từ bản 2.5.
     pub fn set_row_status(&mut self, row_index: usize, status: Status) -> Result<(), String> {
         if row_index >= self.rows.len() {
-            return Err(format!("Hàng {} không tồn tại (có {} hàng).", row_index, self.rows.len()));
+            return Err(format!(
+                "Hàng {} không tồn tại (có {} hàng).",
+                row_index,
+                self.rows.len()
+            ));
         }
         if !ALL_STATUSES.contains(&status) {
             return Err("Trạng thái không hợp lệ.".into());
@@ -457,10 +471,18 @@ impl Session {
                 // TÁCH hoàn toàn: mỗi đoạn một hàng đơn phía, chèn tại chỗ, giữ thứ tự
                 let mut pieces: Vec<Row> = Vec::new();
                 for (i, t) in row.en_segments() {
-                    pieces.push(Row::single_side(Some((i, t.to_string())), None, Status::Unmatched));
+                    pieces.push(Row::single_side(
+                        Some((i, t.to_string())),
+                        None,
+                        Status::Unmatched,
+                    ));
                 }
                 for (i, t) in row.vi_segments() {
-                    pieces.push(Row::single_side(None, Some((i, t.to_string())), Status::Unmatched));
+                    pieces.push(Row::single_side(
+                        None,
+                        Some((i, t.to_string())),
+                        Status::Unmatched,
+                    ));
                 }
                 self.rows.remove(row_index);
                 for (k, p) in pieces.into_iter().enumerate() {
@@ -501,7 +523,11 @@ impl Session {
     ///   `needs_review`. Điểm cũ đặt lại `None`. Hỗ trợ HOÀN TÁC từ bản 2.5.
     pub fn merge_next(&mut self, row_index: usize, status: Option<Status>) -> Result<(), String> {
         if row_index >= self.rows.len() {
-            return Err(format!("Hàng {} không tồn tại (có {} hàng).", row_index, self.rows.len()));
+            return Err(format!(
+                "Hàng {} không tồn tại (có {} hàng).",
+                row_index,
+                self.rows.len()
+            ));
         }
         if row_index + 1 >= self.rows.len() {
             return Err("Đây đã là hàng cuối — không còn hàng phía dưới để gộp.".into());
@@ -578,7 +604,9 @@ fn row_side_blocks(row: &Row, side: Side) -> Vec<Seg> {
         Side::En => row.en_segments(),
         Side::Vi => row.vi_segments(),
     };
-    segs.iter().map(|(i, t)| Seg::new(*i, t.to_string())).collect()
+    segs.iter()
+        .map(|(i, t)| Seg::new(*i, t.to_string()))
+        .collect()
 }
 
 /// Ghi lại danh sách khối cho một phía hàng: khối đầu thành đoạn chính, còn lại vào extra.
@@ -692,11 +720,7 @@ impl SessionStore {
     }
 
     pub fn get(&self, id: &str) -> Option<Session> {
-        self.sessions
-            .lock()
-            .expect("session lock")
-            .get(id)
-            .cloned()
+        self.sessions.lock().expect("session lock").get(id).cloned()
     }
 
     /// Cập nhật phiên (đã thay đổi) — lưu lại đĩa.

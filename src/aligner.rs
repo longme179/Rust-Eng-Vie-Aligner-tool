@@ -150,7 +150,11 @@ pub struct Row {
 
 impl Row {
     /// Hàng “một phía” dùng khi tách / khởi tạo nhanh (không gộp).
-    pub fn single_side(en: Option<(usize, String)>, vi: Option<(usize, String)>, status: Status) -> Row {
+    pub fn single_side(
+        en: Option<(usize, String)>,
+        vi: Option<(usize, String)>,
+        status: Status,
+    ) -> Row {
         Row {
             index: 0,
             en_index: en.as_ref().map(|(i, _)| *i),
@@ -207,7 +211,9 @@ pub struct AlignOptions {
 
 impl Default for AlignOptions {
     fn default() -> Self {
-        AlignOptions { auto_threshold: 0.30 }
+        AlignOptions {
+            auto_threshold: 0.30,
+        }
     }
 }
 
@@ -306,7 +312,8 @@ impl ParaTokens {
             if let Some(c) = first {
                 if c.is_uppercase() {
                     let f = fold_lower(word);
-                    let all_caps = word.chars().all(|ch| ch.is_uppercase()) && word.chars().count() >= 2;
+                    let all_caps =
+                        word.chars().all(|ch| ch.is_uppercase()) && word.chars().count() >= 2;
                     let common = is_common_word(&f);
                     let long_enough = word.chars().count() >= 2;
                     if long_enough && !common && (!idx_normal_start(idx, para) || all_caps) {
@@ -497,7 +504,11 @@ fn score_tokens(pe: &ParaTokens, pv: &ParaTokens, en: &Side, vi: &Side) -> f64 {
         }
     }
     let denom = norm_en.sqrt() * norm_vi.sqrt();
-    let lexical = if denom > 1e-12 { (dot / denom).clamp(0.0, 1.0) } else { 0.0 };
+    let lexical = if denom > 1e-12 {
+        (dot / denom).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
 
     // ---- số câu
     let sa = pe.sent as f64;
@@ -793,7 +804,10 @@ pub fn validate_invariants_opts(out: &AlignOutput, monotonic: bool) -> Result<()
     for row in &out.rows {
         // I4a: trạng thái hợp lệ
         if !ALL_STATUSES.contains(&row.status) {
-            return Err(format!("hàng {}: trạng thái lạ {:?}", row.index, row.status));
+            return Err(format!(
+                "hàng {}: trạng thái lạ {:?}",
+                row.index, row.status
+            ));
         }
         let has_en = row.has_en();
         let has_vi = row.has_vi();

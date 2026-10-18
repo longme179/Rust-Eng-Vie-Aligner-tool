@@ -64,11 +64,7 @@ async fn root() -> Html<&'static str> {
 }
 
 async fn favicon() -> Response {
-    (
-        [(header::CONTENT_TYPE, "image/svg+xml")],
-        FAVICON_SVG,
-    )
-        .into_response()
+    ([(header::CONTENT_TYPE, "image/svg+xml")], FAVICON_SVG).into_response()
 }
 
 async fn api_health() -> Response {
@@ -80,7 +76,11 @@ async fn api_model_status(State(state): State<SharedState>) -> Response {
     let labse_ready = tokio::task::spawn_blocking(embedder::labse_ready)
         .await
         .unwrap_or(false);
-    let engine = if labse_ready { "lexical+labse" } else { "lexical" };
+    let engine = if labse_ready {
+        "lexical+labse"
+    } else {
+        "lexical"
+    };
     let mode = if labse_ready {
         "Từ vựng + LaBSE — chế độ chính xác cao"
     } else {
@@ -116,7 +116,12 @@ async fn api_align(
 ) -> Response {
     let req = match body {
         Ok(Json(r)) => r,
-        Err(e) => return err_json(StatusCode::BAD_REQUEST, &format!("Dữ liệu gửi lên không đúng: {}", e)),
+        Err(e) => {
+            return err_json(
+                StatusCode::BAD_REQUEST,
+                &format!("Dữ liệu gửi lên không đúng: {}", e),
+            )
+        }
     };
     // Chạy bộ ghép (CPU) ngoài runtime — và BẮT PANIC để server không bao giờ chết
     // vì một bài văn lạ (đây là lớp phòng vệ 2, lớp 1 là aligner an toàn index).
@@ -144,7 +149,10 @@ async fn api_align(
                 .unwrap_or_else(|| "lỗi không rõ".into());
             return err_json(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("Bộ ghép gặp lỗi nội bộ (panic đã được bắt, server vẫn sống): {}", msg),
+                &format!(
+                    "Bộ ghép gặp lỗi nội bộ (panic đã được bắt, server vẫn sống): {}",
+                    msg
+                ),
             );
         }
         Err(_) => return err_json(StatusCode::INTERNAL_SERVER_ERROR, "Tác vụ ghép bị hủy."),
@@ -183,7 +191,10 @@ async fn api_align(
             }
             ok_json(v)
         }
-        Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được phiên: {}", e)),
+        Err(e) => err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Không lưu được phiên: {}", e),
+        ),
     }
 }
 
@@ -231,14 +242,14 @@ async fn api_sessions(State(state): State<SharedState>) -> Response {
 async fn api_session_get(State(state): State<SharedState>, Path(id): Path<String>) -> Response {
     match state.store.get(&id) {
         Some(s) => ok_json(session_value(&s, true)),
-        None => err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên (có thể đã bị nhả/xoá)."),
+        None => err_json(
+            StatusCode::NOT_FOUND,
+            "Không tìm thấy phiên (có thể đã bị nhả/xoá).",
+        ),
     }
 }
 
-async fn api_session_delete(
-    State(state): State<SharedState>,
-    Path(id): Path<String>,
-) -> Response {
+async fn api_session_delete(State(state): State<SharedState>, Path(id): Path<String>) -> Response {
     if state.store.delete(&id) {
         println!("[reva-tool] đã nhả phiên {}", id);
         ok_json(json!({ "released": id }))
@@ -266,16 +277,19 @@ async fn api_row_status(
 ) -> Response {
     let req = match body {
         Ok(Json(r)) => r,
-        Err(e) => return err_json(StatusCode::BAD_REQUEST, &format!("Dữ liệu không đúng: {}", e)),
+        Err(e) => {
+            return err_json(
+                StatusCode::BAD_REQUEST,
+                &format!("Dữ liệu không đúng: {}", e),
+            )
+        }
     };
     let status = match aligner::Status::parse(&req.status) {
         Some(s) => s,
-        None => {
-            return err_json(
-                StatusCode::BAD_REQUEST,
-                "Trạng thái phải là một trong: auto_matched, needs_review, unmatched, human_confirmed.",
-            )
-        }
+        None => return err_json(
+            StatusCode::BAD_REQUEST,
+            "Trạng thái phải là một trong: auto_matched, needs_review, unmatched, human_confirmed.",
+        ),
     };
     let mut s = match state.store.get(&id) {
         Some(s) => s,
@@ -285,7 +299,10 @@ async fn api_row_status(
         return err_json(StatusCode::BAD_REQUEST, &e);
     }
     if let Err(e) = state.store.save(&s) {
-        return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được: {}", e));
+        return err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Không lưu được: {}", e),
+        );
     }
     ok_json(session_value(&s, false))
 }
@@ -325,7 +342,10 @@ async fn api_row_merge(
         return err_json(StatusCode::BAD_REQUEST, &e);
     }
     if let Err(e) = state.store.save(&s) {
-        return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được: {}", e));
+        return err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Không lưu được: {}", e),
+        );
     }
     println!(
         "[reva-tool] gộp hàng {} vào hàng {} (phiên {}, còn {} hàng)",
@@ -371,35 +391,51 @@ async fn api_block_move(
 ) -> Response {
     let req = match body {
         Ok(Json(r)) => r,
-        Err(e) => return err_json(StatusCode::BAD_REQUEST, &format!("Dữ liệu không đúng: {}", e)),
-    };
-    let side = match session::Side::parse(&req.side) {
-        Some(s) => s,
-        None => {
+        Err(e) => {
             return err_json(
                 StatusCode::BAD_REQUEST,
-                "'side' phải là \"en\" hoặc \"vi\" — khối chỉ chuyển được sang ô cùng ngôn ngữ.",
+                &format!("Dữ liệu không đúng: {}", e),
             )
         }
     };
+    let side =
+        match session::Side::parse(&req.side) {
+            Some(s) => s,
+            None => return err_json(
+                StatusCode::BAD_REQUEST,
+                "'side' phải là \"en\" hoặc \"vi\" — khối chỉ chuyển được sang ô cùng ngôn ngữ.",
+            ),
+        };
     let to_pos = req.to_pos.unwrap_or(usize::MAX); // thiếu = nối cuối ô đích
     let mut s = match state.store.get(&id) {
         Some(s) => s,
         None => return err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên."),
     };
-    let focus = match s.move_block(side, req.from_row, req.from_pos, req.to_row, to_pos, req.after_row) {
+    let focus = match s.move_block(
+        side,
+        req.from_row,
+        req.from_pos,
+        req.to_row,
+        to_pos,
+        req.after_row,
+    ) {
         Ok(f) => f,
         Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
     };
     if let Err(e) = state.store.save(&s) {
-        return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được: {}", e));
+        return err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Không lưu được: {}", e),
+        );
     }
     println!(
         "[reva-tool] di chuyển khối {} phía {} từ hàng {} → {} (phiên {}, còn {} hàng)",
         req.from_pos,
         side.as_str(),
         req.from_row,
-        req.to_row.map(|r| r.to_string()).unwrap_or_else(|| "hàng mới".into()),
+        req.to_row
+            .map(|r| r.to_string())
+            .unwrap_or_else(|| "hàng mới".into()),
         id,
         s.rows.len()
     );
@@ -418,9 +454,17 @@ async fn api_undo(State(state): State<SharedState>, Path(id): Path<String>) -> R
         return err_json(StatusCode::BAD_REQUEST, &e);
     }
     if let Err(e) = state.store.save(&s) {
-        return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được: {}", e));
+        return err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Không lưu được: {}", e),
+        );
     }
-    println!("[reva-tool] hoàn tác (phiên {}, còn {} bước, {} hàng)", id, s.undo_stack.len(), s.rows.len());
+    println!(
+        "[reva-tool] hoàn tác (phiên {}, còn {} bước, {} hàng)",
+        id,
+        s.undo_stack.len(),
+        s.rows.len()
+    );
     ok_json(session_value(&s, false))
 }
 
@@ -434,9 +478,17 @@ async fn api_redo(State(state): State<SharedState>, Path(id): Path<String>) -> R
         return err_json(StatusCode::BAD_REQUEST, &e);
     }
     if let Err(e) = state.store.save(&s) {
-        return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được: {}", e));
+        return err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Không lưu được: {}", e),
+        );
     }
-    println!("[reva-tool] làm lại (phiên {}, còn {} bước, {} hàng)", id, s.redo_stack.len(), s.rows.len());
+    println!(
+        "[reva-tool] làm lại (phiên {}, còn {} bước, {} hàng)",
+        id,
+        s.redo_stack.len(),
+        s.rows.len()
+    );
     ok_json(session_value(&s, false))
 }
 
@@ -470,13 +522,19 @@ async fn api_row_rescan(
                 .unwrap_or_else(|| "lỗi không rõ".into());
             return err_json(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("Rescan gặp lỗi nội bộ (panic đã được bắt, server vẫn sống): {}", msg),
+                &format!(
+                    "Rescan gặp lỗi nội bộ (panic đã được bắt, server vẫn sống): {}",
+                    msg
+                ),
             );
         }
         Err(_) => return err_json(StatusCode::INTERNAL_SERVER_ERROR, "Tác vụ rescan bị hủy."),
     };
     if let Err(e) = state.store.save(&s) {
-        return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Không lưu được: {}", e));
+        return err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Không lưu được: {}", e),
+        );
     }
     println!(
         "[reva-tool] rescan hàng {} (phiên {}): {:.3} — {} ({})",
@@ -484,7 +542,11 @@ async fn api_row_rescan(
         id,
         score,
         status.as_str(),
-        if labse_used { "LaBSE + từ vựng" } else { "từ vựng" }
+        if labse_used {
+            "LaBSE + từ vựng"
+        } else {
+            "từ vựng"
+        }
     );
     let mut v = session_value(&s, false);
     v["rescan"] = json!({
@@ -510,7 +572,12 @@ async fn api_export(
 ) -> Response {
     let req = match body {
         Ok(Json(r)) => r,
-        Err(e) => return err_json(StatusCode::BAD_REQUEST, &format!("Dữ liệu không đúng: {}", e)),
+        Err(e) => {
+            return err_json(
+                StatusCode::BAD_REQUEST,
+                &format!("Dữ liệu không đúng: {}", e),
+            )
+        }
     };
     let fmt = exporter::ExportFormat::parse(req.format.as_deref().unwrap_or("tsv"))
         .unwrap_or(exporter::ExportFormat::Tsv);
@@ -532,7 +599,10 @@ async fn api_export(
                         header::CONTENT_DISPOSITION,
                         format!("attachment; filename=\"{}\"", r.filename),
                     ),
-                    (header::HeaderName::from_static("x-rows"), r.rows.to_string()),
+                    (
+                        header::HeaderName::from_static("x-rows"),
+                        r.rows.to_string(),
+                    ),
                     (
                         header::HeaderName::from_static("x-none-count"),
                         r.none_count.to_string(),
@@ -564,7 +634,12 @@ async fn api_fetch_url(
 ) -> Response {
     let req = match body {
         Ok(Json(r)) => r,
-        Err(e) => return err_json(StatusCode::BAD_REQUEST, &format!("Dữ liệu không đúng: {}", e)),
+        Err(e) => {
+            return err_json(
+                StatusCode::BAD_REQUEST,
+                &format!("Dữ liệu không đúng: {}", e),
+            )
+        }
     };
     let url = req.url.clone();
     let t0 = Instant::now();
@@ -596,15 +671,23 @@ async fn api_fetch_url(
                 .cloned()
                 .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
                 .unwrap_or_else(|| "lỗi không rõ".into());
-            err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("Lỗi nội bộ khi tải trang: {}", msg))
+            err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Lỗi nội bộ khi tải trang: {}", msg),
+            )
         }
-        Err(_) => err_json(StatusCode::INTERNAL_SERVER_ERROR, "Tác vụ tải trang bị hủy."),
+        Err(_) => err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Tác vụ tải trang bị hủy.",
+        ),
     }
 }
 
 async fn api_selftest() -> Response {
     let t0 = Instant::now();
-    let results = tokio::task::spawn_blocking(selftest::run_all).await.unwrap_or_default();
+    let results = tokio::task::spawn_blocking(selftest::run_all)
+        .await
+        .unwrap_or_default();
     let total = results.len();
     let passed = results.iter().filter(|r| r.passed).count();
     let failed = total - passed;
@@ -688,7 +771,10 @@ async fn main() {
     // ---- tiện ích dòng lệnh (bản 2.6) — chạy xong là thoát, không mở server ----
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("reva-tool {} (REVA tool — ghép & sắp đoạn Anh–Việt)", env!("CARGO_PKG_VERSION"));
+        println!(
+            "reva-tool {} (REVA tool — ghép & sắp đoạn Anh–Việt)",
+            env!("CARGO_PKG_VERSION")
+        );
         return;
     }
     if let Some(pos) = args.iter().position(|a| a == "--extract") {
@@ -722,10 +808,21 @@ async fn main() {
         .and_then(|p| p.trim().parse().ok())
         .unwrap_or(3000);
 
+    // [AUDIT 2026-10-18] mặc định CHỈ mở trên máy của chính mình (127.0.0.1) — đúng
+    // lời hứa "chạy 100% cục bộ". Muốn chia sẻ trong mạng LAN: REVA_BIND=0.0.0.0.
+    let bind_host = std::env::var("REVA_BIND")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+
     let data_dir = resolve_data_dir();
     let sessions_dir = data_dir.join("sessions");
     let store = session::SessionStore::open(sessions_dir);
-    let state = Arc::new(AppState { store, started_at: now_ms() });
+    let state = Arc::new(AppState {
+        store,
+        started_at: now_ms(),
+    });
 
     let app = Router::new()
         .route("/", get(root))
@@ -733,11 +830,20 @@ async fn main() {
         .route("/api/health", get(api_health))
         .route("/api/model-status", get(api_model_status))
         .route("/api/align", post(api_align))
-        .route("/api/sessions", get(api_sessions).delete(api_sessions_delete_all))
-        .route("/api/sessions/{id}", get(api_session_get).delete(api_session_delete))
+        .route(
+            "/api/sessions",
+            get(api_sessions).delete(api_sessions_delete_all),
+        )
+        .route(
+            "/api/sessions/{id}",
+            get(api_session_get).delete(api_session_delete),
+        )
         .route("/api/sessions/{id}/rows/{index}", patch(api_row_status))
         .route("/api/sessions/{id}/rows/{index}/merge", post(api_row_merge))
-        .route("/api/sessions/{id}/rows/{index}/rescan", post(api_row_rescan))
+        .route(
+            "/api/sessions/{id}/rows/{index}/rescan",
+            post(api_row_rescan),
+        )
         .route("/api/sessions/{id}/blocks/move", post(api_block_move))
         .route("/api/sessions/{id}/undo", post(api_undo))
         .route("/api/sessions/{id}/redo", post(api_redo))
@@ -748,18 +854,24 @@ async fn main() {
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
         .with_state(state);
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("{}:{}", bind_host, port);
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[reva-tool] KHÔNG mở được cổng {}: {}", port, e);
+            eprintln!("[reva-tool] KHÔNG mở được {}: {}", addr, e);
             eprintln!("[reva-tool] cổng có thể đang bận — thử: PORT=3001 ./reva-tool");
             std::process::exit(1);
         }
     };
 
     println!("[reva-tool] v{} — REVA tool, ghép & sắp đoạn văn bản Anh–Việt (tiền thân: Cánh đôi Anh–Việt)", env!("CARGO_PKG_VERSION"));
-    println!("[reva-tool] chạy tại http://localhost:{} (giao diện + API, tất cả cục bộ)", port);
+    println!(
+        "[reva-tool] chạy tại http://localhost:{} (giao diện + API, tất cả cục bộ)",
+        port
+    );
+    if bind_host != "127.0.0.1" {
+        println!("[reva-tool] chú ý: đang lắng nghe trên {} — máy khác trong mạng có thể truy cập. Muốn chỉ mình mình dùng thì bỏ biến REVA_BIND rồi chạy lại.", bind_host);
+    }
     println!("[reva-tool] thư mục dữ liệu: {}", data_dir.display());
     println!("[reva-tool] LaBSE (tuỳ chọn): {} — chạy labse/labse_service.py để bật chế độ chính xác cao", embedder::labse_url());
     println!("[reva-tool] nhấn Ctrl+C để dừng");

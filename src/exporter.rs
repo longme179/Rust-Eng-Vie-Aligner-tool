@@ -72,7 +72,9 @@ impl ExportFormat {
             ExportFormat::Csv => "text/csv; charset=utf-8",
             ExportFormat::Html => "text/html; charset=utf-8",
             ExportFormat::Xliff => "application/x-xliff+xml; charset=utf-8",
-            ExportFormat::Xlsx => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ExportFormat::Xlsx => {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            }
         }
     }
 
@@ -82,9 +84,20 @@ impl ExportFormat {
     }
 }
 
-/// Chuẩn hoá 1 dòng để không phá định dạng: bỏ xuống dòng, gộp khoảng trắng.
+/// Chuẩn hoá 1 dòng để không phá định dạng: bỏ xuống dòng, gộp khoảng trắng,
+/// và THAY ký tự điều khiển (0x00–0x1F, 0x7F) bằng space — [AUDIT 2026-10-18]:
+/// giữ cho XLIFF/HTML xuất ra luôn hợp lệ với văn bản chứa ký tự lạ từ PDF/Word.
 fn one_line(s: &str) -> String {
-    s.replace(['\n', '\r', '\t'], " ")
+    s.chars()
+        .map(|c| {
+            let u = c as u32;
+            if u < 0x20 || u == 0x7f {
+                ' ' // ký tự điều khiển → space (xong gộp khoảng trắng phía dưới)
+            } else {
+                c
+            }
+        })
+        .collect::<String>()
         .split_whitespace()
         .collect::<Vec<&str>>()
         .join(" ")
@@ -144,27 +157,57 @@ fn row_cells(r: &Row) -> (String, String, usize) {
     row_cells_sep(r, " ")
 }
 
-/// Escape một trường CSV theo RFC 4180: chứa `,` `"` `\n` `\r` → bọc `"`, `"` nội bộ → `""`.
-fn csv_field(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
+/// Phòng chèn công thức bảng tính ([AUDIT 2026-10-18] — CSV Injection / OWASP):
+/// ô bắt đầu bằng `=` `+` `-` `@` có thể bị Excel/LibreOffice/Sheets hiểu là CÔNG THỨC
+/// khi mở file CSV/TSV — thêm dấu `'` trước để luôn được coi là văn bản.
+/// Chỉ áp cho CSV/TSV (mở bằng Excel); xlsx ghi sẵn kiểu chuỗi nên không cần.
+fn guard_formula(s: &str) -> String {
+    match s.chars().next() {
+        Some(c) if matches!(c, '=' | '+' | '-' | '@') => format!("'{}", s),
+        _ => s.to_string(),
     }
 }
 
-/// Escape văn bản cho HTML.
+/// Escape một trường CSV theo RFC 4180: chứa `,` `"` `\n` `\r` → bọc `"`, `"` nội bộ → `""`.
+/// Kèm phòng chèn công thức: ký tự đầu là = + - @ thì thêm `'` trước.
+fn csv_field(s: &str) -> String {
+    let guarded = guard_formula(s);
+    if guarded.contains(',')
+        || guarded.contains('"')
+        || guarded.contains('\n')
+        || guarded.contains('\r')
+    {
+        format!("\"{}\"", guarded.replace('"', "\"\""))
+    } else {
+        guarded
+    }
+}
+
+/// Escape văn bản cho HTML (kèm loại bỏ ký tự điều khiển — [AUDIT 2026-10-18]).
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
+    s.chars()
+        .filter(|c| {
+            let u = *c as u32;
+            !(u < 0x20 || u == 0x7f) // HTML cũng bỏ ký tự điều khiển cho sạch
+        })
+        .collect::<String>()
+        .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
 }
 
-/// Escape văn bản cho XML.
+/// Escape văn bản cho XML (kèm loại bỏ ký tự điều khiển không hợp lệ XML 1.0 —
+/// [AUDIT 2026-10-18]: 0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F làm XLIFF hỏng).
 fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
+    s.chars()
+        .filter(|c| {
+            let u = *c as u32;
+            !(u < 0x20 || u == 0x7f)
+        })
+        .collect::<String>()
+        .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
@@ -225,9 +268,10 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
             for r in &session.rows {
                 let (en, vi, none) = row_cells(r);
                 none_count += none;
-                body.push_str(&en);
+                // chống chèn công thức khi mở TSV bằng Excel ([AUDIT 2026-10-18])
+                body.push_str(&guard_formula(&en));
                 body.push('\t');
-                body.push_str(&vi);
+                body.push_str(&guard_formula(&vi));
                 body.push('\n');
             }
         }
@@ -280,15 +324,17 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                     // hàng gộp (bản 2.4): kèm danh sách đoạn gốc để dùng máy được
                     let en_segs = r.en_segments();
                     if en_segs.len() > 1 {
-                        obj["enParts"] = serde_json::json!(
-                            en_segs.iter().map(|(_, t)| one_line(t)).collect::<Vec<_>>()
-                        );
+                        obj["enParts"] = serde_json::json!(en_segs
+                            .iter()
+                            .map(|(_, t)| one_line(t))
+                            .collect::<Vec<_>>());
                     }
                     let vi_segs = r.vi_segments();
                     if vi_segs.len() > 1 {
-                        obj["viParts"] = serde_json::json!(
-                            vi_segs.iter().map(|(_, t)| one_line(t)).collect::<Vec<_>>()
-                        );
+                        obj["viParts"] = serde_json::json!(vi_segs
+                            .iter()
+                            .map(|(_, t)| one_line(t))
+                            .collect::<Vec<_>>());
                     }
                     obj
                 })
@@ -311,8 +357,8 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                 },
                 "rows": rows_json,
             });
-            body = serde_json::to_string_pretty(&doc)
-                .map_err(|e| format!("Lỗi tạo JSON: {}", e))?;
+            body =
+                serde_json::to_string_pretty(&doc).map_err(|e| format!("Lỗi tạo JSON: {}", e))?;
             body.push('\n');
         }
         ExportFormat::Html => {
@@ -365,7 +411,8 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                 // Hàng gộp (bản 2.4): mỗi đoạn một dòng, kèm nhãn số đoạn gốc.
                 let en_segs = r.en_segments();
                 let vi_segs = r.vi_segments();
-                none_count += (if en_segs.is_empty() { 1 } else { 0 }) + (if vi_segs.is_empty() { 1 } else { 0 });
+                none_count += (if en_segs.is_empty() { 1 } else { 0 })
+                    + (if vi_segs.is_empty() { 1 } else { 0 });
                 let segs_html = |segs: &Vec<(usize, &str)>| {
                     segs.iter()
                         .map(|(i, t)| {
@@ -385,7 +432,10 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                 };
                 let merged_badge = |n_en: usize, n_vi: usize| {
                     if n_en > 1 || n_vi > 1 {
-                        format!("<span class=\"mg\">🔗 {} EN · {} VI — đã gộp</span>", n_en, n_vi)
+                        format!(
+                            "<span class=\"mg\">🔗 {} EN · {} VI — đã gộp</span>",
+                            n_en, n_vi
+                        )
                     } else {
                         String::new()
                     }
@@ -496,20 +546,12 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
             // u32 tự chuyển thành Color::RGB qua From<u32> (rust_xlsxwriter 0.99)
             let fill = |rgb: u32| Format::new().set_background_color(rgb);
             // ô dữ liệu: nền màu + tự xuống dòng + ép lên đỉnh ô (hàng gộp nhiều đoạn)
-            let cell = |rgb: u32| {
-                fill(rgb)
-                    .set_text_wrap()
-                    .set_align(FormatAlign::Top)
-            };
+            let cell = |rgb: u32| fill(rgb).set_text_wrap().set_align(FormatAlign::Top);
             // ô điểm: nền màu + định dạng phần trăm (0.722 → 72%)
             let pct = |rgb: u32| cell(rgb).set_num_format("0%");
 
-            let hdr = fill(HDR_BG)
-                .set_bold()
-                .set_font_color(0x0F766E);
-            let note = Format::new()
-                .set_italic()
-                .set_font_color(0x6B7280);
+            let hdr = fill(HDR_BG).set_bold().set_font_color(0x0F766E);
+            let note = Format::new().set_italic().set_font_color(0x6B7280);
 
             let xerr = |e: rust_xlsxwriter::XlsxError| format!("Lỗi tạo xlsx: {}", e);
 
@@ -538,9 +580,12 @@ pub fn export_session(session: &Session, format: ExportFormat) -> Result<ExportR
                     Status::NeedsReview => (cell(YELLOW), pct(YELLOW)),
                     Status::Unmatched => (cell(PINK), pct(PINK)),
                 };
-                ws.write_with_format(er, 0, (r.index + 1) as u32, &base).map_err(xerr)?;
-                ws.write_with_format(er, 1, en.as_str(), &base).map_err(xerr)?;
-                ws.write_with_format(er, 2, vi.as_str(), &base).map_err(xerr)?;
+                ws.write_with_format(er, 0, (r.index + 1) as u32, &base)
+                    .map_err(xerr)?;
+                ws.write_with_format(er, 1, en.as_str(), &base)
+                    .map_err(xerr)?;
+                ws.write_with_format(er, 2, vi.as_str(), &base)
+                    .map_err(xerr)?;
                 match r.score {
                     Some(s) => {
                         ws.write_with_format(er, 3, s, &score_fmt).map_err(xerr)?;
