@@ -703,6 +703,14 @@ function wireFileDrop(textId, cardSel, label){
     card.style.outlineOffset = "";
     const files = [...(ev.dataTransfer?.files || [])].filter(f => f.size > 0);
     if (!files.length) return;
+    // chặn file quá to: REVA chấm tối đa 800 đoạn — file >4 MB gần như chắc chắn
+    // là nhầm file (PDF/ZIP/ảnh đổi đuôi .txt), và nạp chuỗi ấy làm nặng trình duyệt.
+    const MAX_TXT_BYTES = 4 * 1024 * 1024;
+    const tooBig = files.find(f => f.size > MAX_TXT_BYTES);
+    if (tooBig){
+      toast(`File ${tooBig.name} lớn hơn 4 MB — REVA chỉ nhận file văn bản .txt nhỏ. Nếu đây là sách dài, hãy tách thành từng phần rồi nạp từng phần.`, "warn", 8000);
+      return;
+    }
     const readFile = (f) => new Promise((res) => {
       const r = new FileReader();
       r.onload = () => res(String(r.result || ""));

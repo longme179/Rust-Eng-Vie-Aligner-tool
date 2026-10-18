@@ -167,9 +167,10 @@ fn row_cells(r: &Row) -> (String, String, usize) {
 /// khi mở file CSV/TSV — thêm dấu `'` trước để luôn được coi là văn bản.
 /// Chỉ áp cho CSV/TSV (mở bằng Excel); xlsx ghi sẵn kiểu chuỗi nên không cần.
 fn guard_formula(s: &str) -> String {
-    match s.chars().next() {
-        Some(c) if matches!(c, '=' | '+' | '-' | '@') => format!("'{}", s),
-        _ => s.to_string(),
+    if s.starts_with(['=', '+', '-', '@']) {
+        format!("'{}", s)
+    } else {
+        s.to_string()
     }
 }
 
