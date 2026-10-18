@@ -497,6 +497,7 @@
     <div class="res-toolbar" id="resToolbar" style="display:none">
       <button class="btn" id="btnUndo" disabled title="Hoàn tác thao tác gần nhất (kéo khối / gộp / đánh dấu / rescan) — Ctrl+Z">↩ <span class="lbl">Hoàn tác</span></button>
       <button class="btn" id="btnRedo" disabled title="Làm lại thao tác vừa hoàn tác — Ctrl+Shift+Z">↪ <span class="lbl">Làm lại</span></button>
+      <button class="btn" id="btnRescanAll" title="Chấm lại điểm khớp MỌI hàng đủ hai phía (LaBSE nếu đang chạy, kèm sàn từ vựng) — dùng sau khi kéo–thả nhiều khối; Ctrl+Z hoàn tác cả lô">↻ <span class="lbl">Rescan tất cả</span></button>
       <label for="fmtSelect" style="font-size:13px;color:var(--muted)">Định dạng:</label>
       <select id="fmtSelect" aria-label="Định dạng xuất">
         <option value="xlsx">Excel (.xlsx) — tô màu theo trạng thái</option>
@@ -945,6 +946,27 @@ async function rescanRow(i){
   }
 }
 
+/** RESCAN TOÀN BỘ (bản 2.8) — chấm lại mọi hàng đủ hai phía; 1 nhấn thay cho bấm từng hàng. */
+async function rescanAll(){
+  const cur = S.current;
+  if (!cur) return;
+  const btn = $("btnRescanAll");
+  if (btn){ btn.classList.add("busy"); btn.disabled = true; }
+  try {
+    const data = await api(`/api/sessions/${encodeURIComponent(cur.id)}/rescan-all`, {
+      method: "POST",
+      body: "{}",
+    });
+    applySessionData(data);
+    const rs = data.rescanAll || {};
+    toast(`Đã chấm lại ${rs.count ?? 0} hàng${rs.labseUsed ? " (LaBSE + từ vựng)" : " (từ vựng — chưa bật LaBSE)"} — Ctrl+Z hoàn tác cả lô.`, "ok", 4600);
+  } catch (e){
+    toast("Rescan toàn bộ không thành công: " + e.message, "err", 6500);
+  } finally {
+    if (btn){ btn.classList.remove("busy"); btn.disabled = false; }
+  }
+}
+
 /* ---- vạch chỉ vị trí chèn + tô ô đích ---- */
 let insMarkEl = null;
 function clearInsMark(){
@@ -1384,6 +1406,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("btnUndo").addEventListener("click", doUndo);
   $("btnRedo").addEventListener("click", doRedo);
+  $("btnRescanAll").addEventListener("click", rescanAll);
 
   $("enText").addEventListener("input", refreshCounts);
   $("viText").addEventListener("input", refreshCounts);
