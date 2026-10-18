@@ -2845,6 +2845,121 @@ fn t_export_tmx() -> Result<(), String> {
     Ok(())
 }
 
+/// 41. [BẢN 2.8] RESCAN TOÀN BỘ: chấm lại mọi hàng đủ hai phía (hàng một phía bỏ
+/// qua), MỘT snapshot hoàn tác cho cả lô — Ctrl+Z một nhấn trả nguyên điểm/trạng
+/// thái cũ của TẤT CẢ hàng; làm lại (redo) áp lại cả lô.
+fn t_rescan_all() -> Result<(), String> {
+    let en0 = "Hanoi hosted the Green Tech Summit 2025 with 4,000 guests.";
+    let vi0 = "Hà Nội tổ chức Hội nghị Công nghệ Xanh 2025 với 4.000 khách.";
+    let en1 = "Second paragraph mentions Siemens and 120 million euros.";
+    let vi1 = "Đoạn thứ hai nhắc tới Siemens và 120 triệu euro.";
+    let en2 = "English only row without any Vietnamese counterpart here.";
+    let rows = vec![
+        Row {
+            index: 0,
+            en_index: Some(0),
+            vi_index: Some(0),
+            en: Some(en0.into()),
+            vi: Some(vi0.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::NeedsReview,
+            score: None, // giả lập: đã kéo–thả nên mất điểm, chờ rescan
+        },
+        Row {
+            index: 1,
+            en_index: Some(1),
+            vi_index: Some(1),
+            en: Some(en1.into()),
+            vi: Some(vi1.into()),
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::NeedsReview,
+            score: None,
+        },
+        Row {
+            index: 2,
+            en_index: Some(2),
+            vi_index: None,
+            en: Some(en2.into()),
+            vi: None,
+            en_extra: Vec::new(),
+            vi_extra: Vec::new(),
+            status: Status::Unmatched,
+            score: None,
+        },
+    ];
+    let mut s = Session {
+        id: "rescan-all-test".into(),
+        title: "rescan all".into(),
+        created_at: 1,
+        updated_at: 1,
+        english: vec![en0.into(), en1.into(), en2.into()],
+        vietnamese: vec![vi0.into(), vi1.into()],
+        rows,
+        options: AlignOptions {
+            auto_threshold: 0.30,
+        },
+        engine: "lexical".into(),
+        reordered: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+    };
+    // lưu trạng thái gốc để đối chiếu hoàn tác
+    let orig_scores: Vec<Option<f64>> = s.rows.iter().map(|r| r.score).collect();
+    let orig_statuses: Vec<Status> = s.rows.iter().map(|r| r.status).collect();
+
+    let (count, labse_used) = s.rescan_all()?;
+    if count != 2 {
+        return Err(format!(
+            "rescan_all phải chấm 2 hàng đủ hai phía, được {}",
+            count
+        ));
+    }
+    // sandbox không có LaBSE → labse_used = false; hai hàng đủ hai phía có điểm mới
+    if labse_used {
+        return Err("trong môi trường không LaBSE, labse_used phải là false".into());
+    }
+    for i in 0..2 {
+        if s.rows[i].score.is_none() {
+            return Err(format!("hàng {} phải có điểm sau rescan_all", i));
+        }
+    }
+    // hàng một phía (index 2) KHÔNG bị chấm — giữ nguyên unmatched, không có điểm
+    if s.rows[2].status != Status::Unmatched || s.rows[2].score.is_some() {
+        return Err("hàng một phía phải được bỏ qua nguyên vẹn".into());
+    }
+    // MỘT snapshot: undo_stack dài đúng 1 (không phải 2 như khi bấm từng hàng)
+    if s.undo_stack.len() != 1 {
+        return Err(format!(
+            "rescan_all phải đẩy đúng 1 snapshot hoàn tác, được {}",
+            s.undo_stack.len()
+        ));
+    }
+    // HOÀN TÁC 1 nhấn → nguyên xi điểm + trạng thái cũ của CẢ LÔ
+    s.undo()?;
+    for i in 0..3 {
+        if s.rows[i].score != orig_scores[i] || s.rows[i].status != orig_statuses[i] {
+            return Err(format!(
+                "sau undo, hàng {} phải trả nguyên trạng thái/điểm cũ",
+                i
+            ));
+        }
+    }
+    // LÀM LẠI → cả lô được chấm lại như trước undo
+    s.redo()?;
+    if s.rows[0].score.is_none() || s.rows[1].score.is_none() {
+        return Err("sau redo, hai hàng phải có điểm lại".into());
+    }
+    // phiên chỉ có hàng một phía → báo lỗi rõ (không chặn hình)
+    let mut only_one = s.clone();
+    only_one.rows = vec![only_one.rows[2].clone()];
+    if only_one.rescan_all().is_ok() {
+        return Err("phiên không hàng nào đủ hai phía phải báo lỗi".into());
+    }
+    Ok(())
+}
+
 pub fn run_all() -> Vec<TestResult> {
     let tests: Vec<(&str, fn() -> Result<(), String>)> = vec![
         ("01. tách đoạn (dòng trống / dòng đơn / CRLF)", t_split_paragraphs),
@@ -2887,6 +3002,7 @@ pub fn run_all() -> Vec<TestResult> {
         ("38. [AUDIT 2026-10-18] loại ký tự điều khiển khi xuất (XLIFF/HTML hợp lệ)", t_export_control_chars),
         ("39. [AUDIT 2026-10-18] chặn SSRF (địa chỉ nội bộ) + phân giải redirect", t_fetch_ssrf_guard),
         ("40. [BẢN 2.8] xuất TMX 1.2 (bộ nhớ dịch cho CAT: header đủ, tu/tuv/prop, none nguyên văn, escape)", t_export_tmx),
+        ("41. [BẢN 2.8] Rescan toàn bộ: 1 nhấn chấm hết hàng đủ hai phía + 1 snapshot hoàn tác nguyên xi", t_rescan_all),
     ];
 
     let mut results = Vec::with_capacity(tests.len());

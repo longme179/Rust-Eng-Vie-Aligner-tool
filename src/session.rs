@@ -385,28 +385,10 @@ impl Session {
 
     // ========================= Chấm lại điểm (bản 2.5) =========================
 
-    /// RESCAN một hàng: ghép các khối mỗi phía thành 1 văn bản, chấm lại điểm
-    /// tương đồng bằng bộ từ vựng (giữ idf của TOÀN phiên như lúc ghép gốc) và
-    /// HOÀ TRỘN cosine LaBSE nếu dịch vụ nhúng đang chạy. Cập nhật điểm + trạng thái
-    /// theo ngưỡng của phiên (≥ ngưỡng → tự khớp, dưới → cần soát).
-    /// Trả về (điểm, trạng thái mới, LaBSE đã dùng?).
-    pub fn rescan_row(&mut self, row_index: usize) -> Result<(f64, Status, bool), String> {
-        if row_index >= self.rows.len() {
-            return Err(format!(
-                "Hàng {} không tồn tại (phiên có {} hàng).",
-                row_index,
-                self.rows.len()
-            ));
-        }
-        {
-            let row = &self.rows[row_index];
-            if !row.has_en() || !row.has_vi() {
-                return Err(
-                    "Hàng chỉ có một phía — chưa chấm điểm được. Kéo khối vào phía thiếu (hoặc tách khối ra hàng khác) rồi bấm Rescan lại."
-                        .into(),
-                );
-            }
-        }
+    /// Lõi chấm lại 1 hàng (không đụng lịch sử) — dùng chung cho rescan_row và
+    /// rescan_all (bản 2.8). Trả (điểm, trạng thái, LaBSE đã dùng?).
+    /// Hàng phải ĐỦ hai phía (người gọi đã kiểm).
+    fn rescan_row_core(&self, row_index: usize) -> (f64, Status, bool) {
         let en_text = self.rows[row_index]
             .en_segments()
             .iter()
@@ -433,12 +415,70 @@ impl Session {
         } else {
             Status::NeedsReview
         };
+        (score, status, emb_cos.is_some())
+    }
+
+    /// RESCAN một hàng: ghép các khối mỗi phía thành 1 văn bản, chấm lại điểm
+    /// tương đồng bằng bộ từ vựng (giữ idf của TOÀN phiên như lúc ghép gốc) và
+    /// HOÀ TRỘN cosine LaBSE nếu dịch vụ nhúng đang chạy. Cập nhật điểm + trạng thái
+    /// theo ngưỡng của phiên (≥ ngưỡng → tự khớp, dưới → cần soát).
+    /// Trả về (điểm, trạng thái mới, LaBSE đã dùng?).
+    pub fn rescan_row(&mut self, row_index: usize) -> Result<(f64, Status, bool), String> {
+        if row_index >= self.rows.len() {
+            return Err(format!(
+                "Hàng {} không tồn tại (phiên có {} hàng).",
+                row_index,
+                self.rows.len()
+            ));
+        }
+        {
+            let row = &self.rows[row_index];
+            if !row.has_en() || !row.has_vi() {
+                return Err(
+                    "Hàng chỉ có một phía — chưa chấm điểm được. Kéo khối vào phía thiếu (hoặc tách khối ra hàng khác) rồi bấm Rescan lại."
+                        .into(),
+                );
+            }
+        }
+        let (score, status, labse_used) = self.rescan_row_core(row_index);
         self.push_history();
         let row = &mut self.rows[row_index];
         row.score = Some(score);
         row.status = status;
         self.updated_at = now_ms();
-        Ok((score, status, emb_cos.is_some()))
+        Ok((score, status, labse_used))
+    }
+
+    /// BẢN 2.8 — RESCAN TOÀN BỘ: chấm lại điểm MỌI hàng đủ hai phía (đúng lõi
+    /// rescan_row). MỘT snapshot hoàn tác cho cả lô — Ctrl+Z một nhấn trả nguyên
+    /// cả loạt điểm/trạng thái cũ. Hàng một phía được bỏ qua (không chấm được).
+    /// Trả về (số hàng đã chấm, LaBSE đã dùng ít nhất 1 lần?).
+    pub fn rescan_all(&mut self) -> Result<(usize, bool), String> {
+        let paired: Vec<usize> = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.has_en() && r.has_vi())
+            .map(|(i, _)| i)
+            .collect();
+        if paired.is_empty() {
+            return Err("Không có hàng nào đủ hai phía để chấm lại điểm.".into());
+        }
+        let mut labse_used_any = false;
+        let mut scanned = 0usize;
+        self.push_history(); // MỘT snapshot cho cả lô (hoàn tác 1 nhấn)
+        for i in paired {
+            let (score, status, labse_used) = self.rescan_row_core(i);
+            if labse_used {
+                labse_used_any = true;
+            }
+            let row = &mut self.rows[i];
+            row.score = Some(score);
+            row.status = status;
+            scanned += 1;
+        }
+        self.updated_at = now_ms();
+        Ok((scanned, labse_used_any))
     }
 
     // ========================= Trạng thái / gộp hàng =========================

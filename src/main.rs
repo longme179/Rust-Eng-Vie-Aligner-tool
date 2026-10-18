@@ -558,6 +558,69 @@ async fn api_row_rescan(
     ok_json(v)
 }
 
+/// BẢN 2.8 — RESCAN TOÀN BỘ: chấm lại điểm mọi hàng đủ hai phía (một thao tác
+/// thay cho việc bấm Rescan từng hàng sau khi kéo–thả). Hoàn tác được 1 nhấn.
+async fn api_rescan_all(State(state): State<SharedState>, Path(id): Path<String>) -> Response {
+    let s = match state.store.get(&id) {
+        Some(s) => s,
+        None => return err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên."),
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        catch_unwind(AssertUnwindSafe(|| {
+            let mut s = s;
+            let info: (usize, bool) = s.rescan_all()?;
+            Ok::<(session::Session, (usize, bool)), String>((s, info))
+        }))
+    })
+    .await;
+    let (s, (count, labse_used)) = match result {
+        Ok(Ok(Ok(pair))) => pair,
+        Ok(Ok(Err(e))) => return err_json(StatusCode::BAD_REQUEST, &e),
+        Ok(Err(panic)) => {
+            let msg = panic
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| panic.downcast_ref::<&str>().map(|x| x.to_string()))
+                .unwrap_or_else(|| "lỗi không rõ".into());
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!(
+                    "Rescan toàn bộ gặp lỗi nội bộ (panic đã được bắt, server vẫn sống): {}",
+                    msg
+                ),
+            );
+        }
+        Err(_) => {
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Tác vụ rescan toàn bộ bị hủy.",
+            )
+        }
+    };
+    if let Err(e) = state.store.save(&s) {
+        return err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Không lưu được: {}", e),
+        );
+    }
+    println!(
+        "[reva-tool] rescan toàn bộ (phiên {}): {} hàng — {}",
+        id,
+        count,
+        if labse_used {
+            "LaBSE + từ vựng"
+        } else {
+            "từ vựng"
+        }
+    );
+    let mut v = session_value(&s, false);
+    v["rescanAll"] = json!({
+        "count": count,
+        "labseUsed": labse_used,
+    });
+    ok_json(v)
+}
+
 #[derive(Deserialize)]
 struct ExportRequest {
     #[serde(alias = "sessionId")]
@@ -714,7 +777,7 @@ struct DebugQuery {
 }
 
 async fn api_not_found(Query(_q): Query<DebugQuery>) -> Response {
-    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health, /api/sessions/{id}/rows/{index} (PATCH đổi trạng thái), /api/sessions/{id}/rows/{index}/merge (POST gộp hàng), /api/sessions/{id}/rows/{index}/rescan (POST chấm lại điểm), /api/sessions/{id}/blocks/move (POST di chuyển khối), /api/sessions/{id}/undo và /api/sessions/{id}/redo (POST hoàn tác / làm lại).")
+    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health, /api/sessions/{id}/rows/{index} (PATCH đổi trạng thái), /api/sessions/{id}/rows/{index}/merge (POST gộp hàng), /api/sessions/{id}/rows/{index}/rescan (POST chấm lại điểm), /api/sessions/{id}/rescan-all (POST chấm lại toàn bộ), /api/sessions/{id}/blocks/move (POST di chuyển khối), /api/sessions/{id}/undo và /api/sessions/{id}/redo (POST hoàn tác / làm lại).")
 }
 
 // ========================= Main =========================
@@ -844,6 +907,7 @@ async fn main() {
             "/api/sessions/{id}/rows/{index}/rescan",
             post(api_row_rescan),
         )
+        .route("/api/sessions/{id}/rescan-all", post(api_rescan_all))
         .route("/api/sessions/{id}/blocks/move", post(api_block_move))
         .route("/api/sessions/{id}/undo", post(api_undo))
         .route("/api/sessions/{id}/redo", post(api_redo))
