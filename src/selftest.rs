@@ -27,11 +27,11 @@
 //! từng loại, âm tính (không báo oan), biên số liệu hai phía, hàng một phía,
 //! thuần đọc + không phụ thuộc LaBSE, hiệu năng 10.000 đoạn < 1 s.
 
-use crate::aligner::{self, AlignOptions, Row, Status};
+use crate::aligner::{self, AlignOptions, Row, Seg, Status};
 use crate::exporter::{export_session, ExportFormat};
 use crate::fetcher;
 use crate::qa::{self, Severity};
-use crate::session::{derive_title, generate_id, Session, SessionStore, Side};
+use crate::session::{derive_title, find_match_ranges, generate_id, Session, SessionStore, Side};
 use crate::stats;
 use serde::Serialize;
 use std::io::Read;
@@ -3672,6 +3672,387 @@ fn t_qa_perf_10k() -> Result<(), String> {
     Ok(())
 }
 
+// ========================= BẢN 2.9: tìm / lọc / thay thế hàng loạt (F3) =========================
+
+/// 52. [BẢN 2.9] Thay thế cơ bản: 3 chỗ trong 3 khối VI (cột VI mặc định) — nội dung
+///     đúng, tài liệu GỐC đồng bộ theo hàng, điểm hàng bị xoá, MỘT snapshot cho cả lô,
+///     undo 1 nhấn trả NGUYÊN XI cả 3 (kể cả tài liệu gốc), redo áp lại.
+fn t_replace_basic_undo_redo() -> Result<(), String> {
+    let en = vec![
+        "The summit opened in Hanoi".to_string(),
+        "Delegates arrived early".to_string(),
+        "The second day in Hanoi continued".to_string(),
+        "Hanoi and Haiphong grew fast".to_string(),
+    ];
+    let vi = vec![
+        "Hội nghị khai mạc tại Hà Nội".to_string(),
+        "Đoàn đại biểu đến sớm".to_string(),
+        "Ngày thứ hai tại Hà Nội tiếp tục".to_string(),
+        "Hà Nội và Hải Phòng phát triển nhanh".to_string(),
+    ];
+    let rows: Vec<Row> = (0..4)
+        .map(|k| pair_row(k, k, &en, &vi, Status::NeedsReview, Some(0.66)))
+        .collect();
+    let mut s = manual_session(en, vi, rows);
+    let rows_before = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+    let vi_before = serde_json::to_string(&s.vietnamese).map_err(|e| e.to_string())?;
+
+    let out = s
+        .replace_all(Side::Vi, "Hà Nội", "THỦY ĐÔ HÀ NỘI", false)
+        .map_err(|e| format!("thay thế hợp lệ phải được: {}", e))?;
+    if out.changed != 3 || out.blocks != 3 || out.rows != 3 {
+        return Err(format!(
+            "phải thay 3 chỗ / 3 khối / 3 hàng, được {}/{}:{}",
+            out.changed, out.blocks, out.rows
+        ));
+    }
+    // nội dung đúng — chuỗi mới chèn đúng chỗ, phần còn lại y nguyên
+    if s.rows[0].vi.as_deref() != Some("Hội nghị khai mạc tại THỦY ĐÔ HÀ NỘI")
+        || s.rows[1].vi.as_deref() != Some("Đoàn đại biểu đến sớm")
+        || s.rows[3].vi.as_deref() != Some("THỦY ĐÔ HÀ NỘI và Hải Phòng phát triển nhanh")
+    {
+        return Err(format!(
+            "nội dung sau thay sai: {:?}",
+            s.rows.iter().map(|r| r.vi.clone()).collect::<Vec<_>>()
+        ));
+    }
+    // điểm của hàng bị thay phải được xoá (chữ đã đổi — điểm cũ hết nghĩa); hàng sạch giữ điểm
+    if s.rows[0].score.is_some() || s.rows[2].score.is_some() || s.rows[3].score.is_some() {
+        return Err("hàng bị thay phải mất điểm (score = None)".into());
+    }
+    if s.rows[1].score != Some(0.66) {
+        return Err("hàng không bị thay phải GIỮ điểm cũ".into());
+    }
+    // tài liệu GỐC đồng bộ theo hàng (đoạn 0 và 3 đã đổi)
+    if s.vietnamese[0] != "Hội nghị khai mạc tại THỦY ĐÔ HÀ NỘI"
+        || s.vietnamese[3] != "THỦY ĐÔ HÀ NỘI và Hải Phòng phát triển nhanh"
+    {
+        return Err("tài liệu gốc phải được đồng bộ theo khối mới".into());
+    }
+    // MỘT snapshot cho cả lô (không phải 3)
+    if s.undo_stack.len() != 1 {
+        return Err(format!(
+            "thay cả lô phải đẩy đúng 1 snapshot, được {}",
+            s.undo_stack.len()
+        ));
+    }
+    // xuất file kiểm bất biến vẫn OK (hàng ↔ tài liệu gốc khớp nhau)
+    if let Err(e) = export_session(&s, ExportFormat::Tsv) {
+        return Err(format!("xuất TSV sau thay thế phải hợp lệ: {}", e));
+    }
+    // HOÀN TÁC 1 nhấn → nguyên xi CẢ 3 chỗ + tài liệu gốc + điểm cũ
+    s.undo().map_err(|e| e.to_string())?;
+    let rows_after_undo = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+    if rows_after_undo != rows_before {
+        return Err("sau undo, hàng phải trả NGUYÊN XI (kể cả điểm)".into());
+    }
+    let vi_after_undo = serde_json::to_string(&s.vietnamese).map_err(|e| e.to_string())?;
+    if vi_after_undo != vi_before {
+        return Err("sau undo, TÀI LIỆU GỐC cũng phải trả nguyên xi (sync_docs_from_rows)".into());
+    }
+    if let Err(e) = export_session(&s, ExportFormat::Tsv) {
+        return Err(format!("xuất TSV sau undo phải hợp lệ: {}", e));
+    }
+    // LÀM LẠI → áp lại cả lô như trước undo
+    s.redo().map_err(|e| e.to_string())?;
+    if s.rows[0].vi.as_deref() != Some("Hội nghị khai mạc tại THỦY ĐÔ HÀ NỘI") {
+        return Err("sau redo, thay thế phải áp lại".into());
+    }
+    if s.vietnamese[0] != "Hội nghị khai mạc tại THỦY ĐÔ HÀ NỘI" {
+        return Err("sau redo, tài liệu gốc cũng áp lại".into());
+    }
+    Ok(())
+}
+
+/// 53. [BẢN 2.9] Phân biệt hoa thường + chọn cột: không-phân-biệt bắt "The"/"the"/"THE"
+///     (3 chỗ, thay đúng chỗ); phân-biệt chỉ bắt đúng 1; cột EN không đụng chữ VI và ngược lại.
+fn t_replace_case_and_column() -> Result<(), String> {
+    let en = vec![
+        "The cat sat".to_string(),
+        "the dog ran".to_string(),
+        "THE bird flew".to_string(),
+    ];
+    let vi = vec![
+        "Con mèo ngồi".to_string(),
+        "Con chó chạy".to_string(),
+        "Con chim bay".to_string(),
+    ];
+    let rows: Vec<Row> = (0..3)
+        .map(|k| pair_row(k, k, &en, &vi, Status::NeedsReview, None))
+        .collect();
+    let mut s = manual_session(en, vi, rows);
+
+    // KHÔNG phân biệt hoa thường: "The" bắt cả "The"/"the"/"THE" — 3 chỗ
+    let out = s
+        .replace_all(Side::En, "The", "A", false)
+        .map_err(|e| e.to_string())?;
+    if out.changed != 3 {
+        return Err(format!(
+            "không phân biệt hoa thường: \"The\" phải bắt 3 chỗ (The/the/THE), được {}",
+            out.changed
+        ));
+    }
+    if s.rows[0].en.as_deref() != Some("A cat sat")
+        || s.rows[1].en.as_deref() != Some("A dog ran")
+        || s.rows[2].en.as_deref() != Some("A bird flew")
+    {
+        return Err(format!(
+            "thay không-phân-biệt-hoa sai chỗ: {:?}",
+            s.rows.iter().map(|r| r.en.clone()).collect::<Vec<_>>()
+        ));
+    }
+    // cột EN không đụng chữ VI
+    if s.rows[0].vi.as_deref() != Some("Con mèo ngồi") {
+        return Err("thay cột EN không được đụng chữ VI".into());
+    }
+    // HOÀN TÁC rồi thử PHÂN BIỆT hoa thường: chỉ "the" (hàng 1) khớp — 1 chỗ
+    s.undo().map_err(|e| e.to_string())?;
+    let out_cs = s
+        .replace_all(Side::En, "the", "X", true)
+        .map_err(|e| e.to_string())?;
+    if out_cs.changed != 1 || s.rows[1].en.as_deref() != Some("X dog ran") {
+        return Err(format!(
+            "phân biệt hoa thường: chỉ \"the\" hàng 1 khớp, được {} chỗ",
+            out_cs.changed
+        ));
+    }
+    if s.rows[0].en.as_deref() != Some("The cat sat")
+        || s.rows[2].en.as_deref() != Some("THE bird flew")
+    {
+        return Err("phân biệt hoa thường không được đổi The/THE".into());
+    }
+    // cột VI thay mà cột EN giữ nguyên
+    let out_vi = s
+        .replace_all(Side::Vi, "Con", "Những con", true)
+        .map_err(|e| e.to_string())?;
+    if out_vi.changed != 3 {
+        return Err(format!("cột VI phải thay 3 chỗ, được {}", out_vi.changed));
+    }
+    if s.rows[0].en.as_deref() != Some("The cat sat") {
+        return Err("thay cột VI không được đụng chữ EN".into());
+    }
+    // vùng khớp thô (find_match_ranges): không chồng lấn "aa" trong "aaa" = 1 chỗ
+    let r = find_match_ranges("aaa", "aa", true);
+    if r.len() != 1 {
+        return Err(format!(
+            "\"aa\" trong \"aaa\" phải 1 chỗ không chồng lấn, được {}",
+            r.len()
+        ));
+    }
+    Ok(())
+}
+
+/// 54. [BẢN 2.9] Đầu vào xấu: chuỗi tìm rỗng/toàn khoảng trắng → lỗi; tìm == thay →
+///     lỗi; cột lạ không phân giải được; 0 chỗ khớp → changed=0, KHÔNG snapshot,
+///     KHÔNG đổi updated_at (canUndo giữ nguyên).
+fn t_replace_invalid_inputs() -> Result<(), String> {
+    let en = vec!["Alpha beta".to_string()];
+    let vi = vec!["Mô tả hai từ".to_string()];
+    let rows = vec![pair_row(0, 0, &en, &vi, Status::NeedsReview, None)];
+    let mut s = manual_session(en, vi, rows);
+
+    if s.replace_all(Side::Vi, "", "x", false).is_ok() {
+        return Err("chuỗi tìm rỗng phải bị từ chối".into());
+    }
+    if s.replace_all(Side::Vi, "   ", "x", false).is_ok() {
+        return Err("chuỗi tìm toàn khoảng trắng phải bị từ chối".into());
+    }
+    if s.replace_all(Side::Vi, "Hà Nội", "Hà Nội", false).is_ok() {
+        return Err("tìm == thay phải bị từ chối (không có gì để thay)".into());
+    }
+    if Side::parse("fr").is_some() {
+        return Err("cột lạ (fr) không được phân giải thành phía nào".into());
+    }
+    // 0 chỗ khớp → Ok(0) nhưng KHÔNG snapshot, KHÔNG đổi gì (kể cả updated_at)
+    let before_upd = s.updated_at;
+    let rows_before = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+    let out = s
+        .replace_all(Side::Vi, "không-tồn-tại-chuỗi-này", "x", false)
+        .map_err(|e| e.to_string())?;
+    if out.changed != 0 || out.blocks != 0 || out.rows != 0 {
+        return Err("0 chỗ khớp phải trả 0/0/0".into());
+    }
+    if !s.undo_stack.is_empty() {
+        return Err("0 chỗ khớp KHÔNG được đẩy snapshot hoàn tác".into());
+    }
+    if s.updated_at != before_upd {
+        return Err("0 chỗ khớp không được đổi updated_at".into());
+    }
+    let rows_after = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+    if rows_before != rows_after {
+        return Err("0 chỗ khớp không được đổi hàng nào".into());
+    }
+    Ok(())
+}
+
+/// 55. [BẢN 2.9] Lô lớn + hàng GỘP: 5 hàng × 2 chỗ mỗi hàng = 10 lần thay trong 5 hàng,
+///     đúng 1 snapshot cho cả lô; hàng gộp (1 EN · 2 VI) thay đủ CẢ HAI khối VI của nó.
+fn t_replace_batch_and_merged_rows() -> Result<(), String> {
+    // EN 5 đoạn / VI 6 đoạn — hàng 1 là hàng GỘP 1 EN · 2 VI (đoạn VI kề nhau 1+2,
+    // đúng bất biến I3 đơn điệu; gộp thật chỉ xảy ra với đoạn kề nhau)
+    let en = vec![
+        "Row one text here".to_string(),
+        "Row two text here".to_string(),
+        "Row three text".to_string(),
+        "Row four text".to_string(),
+        "Row five text".to_string(),
+    ];
+    let vi = vec![
+        "Hàng một chấm chấm và chấm chấm nữa".to_string(),
+        "Hàng hai chấm chấm đây".to_string(),
+        "Hàng ba chấm chấm đây".to_string(),
+        "Hàng bốn chấm chấm và chấm chấm nữa".to_string(),
+        "Hàng năm chấm chấm và chấm chấm nữa".to_string(),
+        "Hàng sáu chấm chấm và chấm chấm nữa".to_string(),
+    ];
+    // hàng 1 GỘP: 1 EN (đoạn 1) · 2 VI (khối chính đoạn 1 + khối gộp đoạn 2 = 2 chỗ/hàng)
+    let mut merged = pair_row(1, 1, &en, &vi, Status::NeedsReview, None);
+    merged.vi_extra = vec![Seg {
+        index: 2,
+        text: vi[2].clone(),
+    }];
+    let rows = vec![
+        pair_row(0, 0, &en, &vi, Status::NeedsReview, None),
+        merged,
+        pair_row(2, 3, &en, &vi, Status::NeedsReview, None),
+        pair_row(3, 4, &en, &vi, Status::NeedsReview, None),
+        pair_row(4, 5, &en, &vi, Status::NeedsReview, None),
+    ];
+    let mut s = manual_session(en, vi, rows);
+    let rows_before = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+
+    // "chấm chấm": 4 hàng đơn × 2 chỗ + hàng gộp (1 khối chính + 1 khối gộp) = 10 chỗ / 6 khối / 5 hàng
+    let out = s
+        .replace_all(Side::Vi, "chấm chấm", "dấu", false)
+        .map_err(|e| e.to_string())?;
+    if out.changed != 10 || out.blocks != 6 || out.rows != 5 {
+        return Err(format!(
+            "phải thay 10 chỗ / 6 khối / 5 hàng, được {}/{}:{}",
+            out.changed, out.blocks, out.rows
+        ));
+    }
+    // hàng đơn đầu: 2 chỗ trong CÙNG một khối đều được thay
+    if s.rows[0].vi.as_deref() != Some("Hàng một dấu và dấu nữa") {
+        return Err(format!(
+            "2 chỗ trong 1 khối phải thay đủ: {:?}",
+            s.rows[0].vi
+        ));
+    }
+    // hàng gộp: CẢ HAI khối VI của nó đều được thay (khối chính + khối gộp)
+    let r1 = &s.rows[1];
+    if r1.vi.as_deref() != Some("Hàng hai dấu đây")
+        || r1.vi_extra.len() != 1
+        || r1.vi_extra[0].text != "Hàng ba dấu đây"
+    {
+        return Err(format!(
+            "hàng gộp phải thay đủ cả khối chính + khối gộp: chính={:?} extra={:?}",
+            r1.vi, r1.vi_extra
+        ));
+    }
+    // đúng 1 snapshot cho cả lô 10 chỗ
+    if s.undo_stack.len() != 1 {
+        return Err(format!(
+            "10 chỗ trong 5 hàng phải đúng 1 snapshot, được {}",
+            s.undo_stack.len()
+        ));
+    }
+    // xuất sau thay OK, hoàn tác 1 nhấn trả đủ cả 5 hàng nguyên xi
+    if let Err(e) = export_session(&s, ExportFormat::Tsv) {
+        return Err(format!("xuất TSV sau thay lô lớn phải hợp lệ: {}", e));
+    }
+    s.undo().map_err(|e| e.to_string())?;
+    let rows_after = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+    if rows_before != rows_after {
+        return Err("undo 1 nhấn phải trả nguyên xi cả lô 5 hàng".into());
+    }
+    Ok(())
+}
+
+/// 56. [BẢN 2.9] Biên Unicode + hiệu năng: thay trong chữ Việt có dấu; emoji ZWJ
+///     nguyên vẹn; thay TOÀN BỘ nội dung 1 khối thành rỗng vẫn xuất được; tìm NFC
+///     trong chuỗi NFD không khớp (quy ước so-theo-ký-tự); phiên 10.000 hàng < 1 s.
+fn t_replace_unicode_edges_perf() -> Result<(), String> {
+    // chữ Việt có dấu — substring theo KÝ TỰ (không phải byte) nên an toàn UTF-8
+    let en = vec!["Emoji and accents".to_string()];
+    let vi = vec![
+        "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466} đi nghỉ dưỡng tại gia đình"
+            .to_string(),
+    ];
+    let rows = vec![pair_row(0, 0, &en, &vi, Status::NeedsReview, None)];
+    let mut s = manual_session(en, vi, rows);
+    let out = s
+        .replace_all(Side::Vi, "gia đình", "nhà", false)
+        .map_err(|e| e.to_string())?;
+    if out.changed != 1 {
+        return Err(format!(
+            "thay chữ Việt có dấu phải 1 chỗ, được {}",
+            out.changed
+        ));
+    }
+    let expect =
+        "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466} đi nghỉ dưỡng tại nhà";
+    if s.rows[0].vi.as_deref() != Some(expect) {
+        return Err("emoji ZWJ ghép phải nguyên vẹn sau thay".into());
+    }
+    if s.vietnamese[0] != expect {
+        return Err("tài liệu gốc cũng phải giữ emoji nguyên vẹn".into());
+    }
+    // thay TOÀN BỘ khối thành rỗng → khối rỗng vẫn hợp lệ, xuất được
+    let out2 = s
+        .replace_all(Side::Vi, expect, "", false)
+        .map_err(|e| e.to_string())?;
+    if out2.changed != 1 || s.rows[0].vi.as_deref() != Some("") {
+        return Err("thay cả khối thành rỗng phải được (khối rỗng vẫn hợp lệ)".into());
+    }
+    if let Err(e) = export_session(&s, ExportFormat::Tsv) {
+        return Err(format!("xuất TSV với khối rỗng phải hợp lệ: {}", e));
+    }
+    // NFD: substring so THEO KÝ TỰ — "cà phê" NFC không khớp "cà phê" NFD (quy ước công khai)
+    let vi_nfd: String = "cà phê đàng đi".nfd().collect();
+    let en2 = vec!["NFD test".to_string()];
+    let vi2 = vec![vi_nfd.clone()];
+    let rows2 = vec![pair_row(0, 0, &en2, &vi2, Status::NeedsReview, None)];
+    let mut s2 = manual_session(en2, vi2, rows2);
+    let out_nfd = s2
+        .replace_all(Side::Vi, "cà phê", "trà", false)
+        .map_err(|e| e.to_string())?;
+    if out_nfd.changed != 0 {
+        return Err(
+            "tìm NFC trong chuỗi NFD phải 0 chỗ (so theo ký tự — quy ước công khai)".into(),
+        );
+    }
+    // HIỆU NĂNG: 10.000 hàng đủ hai phía thay "Alpha Corp" (kể cả snapshot cả lô)
+    let n = 10_000usize;
+    let en3: Vec<String> = (0..n)
+        .map(|k| format!("Report {} from Alpha Corp number {}", k, k))
+        .collect();
+    let vi3: Vec<String> = (0..n)
+        .map(|k| format!("Báo cáo {} từ Alpha Corp số {}", k, k))
+        .collect();
+    let rows3: Vec<Row> = (0..n)
+        .map(|k| pair_row(k, k, &en3, &vi3, Status::NeedsReview, None))
+        .collect();
+    let mut big = manual_session(en3, vi3, rows3);
+    let t0 = Instant::now();
+    let out_big = big
+        .replace_all(Side::Vi, "Alpha Corp", "Tập đoàn Alpha", false)
+        .map_err(|e| e.to_string())?;
+    let ms = t0.elapsed().as_millis();
+    if out_big.changed != n {
+        return Err(format!(
+            "phiên lớn phải thay đủ {} chỗ, được {}",
+            n, out_big.changed
+        ));
+    }
+    if ms >= 1_000 {
+        return Err(format!(
+            "thay {} hàng mất {} ms — vượt ngân sách 1.000 ms",
+            n, ms
+        ));
+    }
+    Ok(())
+}
+
 pub fn run_all() -> Vec<TestResult> {
     let tests: Vec<(&str, fn() -> Result<(), String>)> = vec![
         ("01. tách đoạn (dòng trống / dòng đơn / CRLF)", t_split_paragraphs),
@@ -3725,6 +4106,11 @@ pub fn run_all() -> Vec<TestResult> {
         ("49. [BẢN 2.9] QA hàng một phía: kiểm 1/4/5/6/8 chạy phía có mặt, kiểm 2/3 bỏ; phiên rỗng = 0", t_qa_single_side),
         ("50. [BẢN 2.9] QA thuần đọc + tất định + không phụ thuộc LaBSE (rescan cos=1 không đổi báo cáo)", t_qa_readonly_labse_independent),
         ("51. [BẢN 2.9] QA hiệu năng: 10.000 đoạn đủ hai phía soát dưới 1.000 ms, 0 báo oan", t_qa_perf_10k),
+        ("52. [BẢN 2.9] Thay thế: 3 chỗ đúng nội dung + sync tài liệu gốc + 1 snapshot + undo/redo nguyên xi", t_replace_basic_undo_redo),
+        ("53. [BẢN 2.9] Thay thế: hoa thường (The/the/THE) + chọn cột (EN không đụng VI) + không chồng lấn", t_replace_case_and_column),
+        ("54. [BẢN 2.9] Thay thế đầu vào xấu: rỗng/trắng/tìm==thay bị chặn · 0 khớp = 0 snapshot, 0 đổi", t_replace_invalid_inputs),
+        ("55. [BẢN 2.9] Thay lô lớn 10 chỗ/5 hàng đúng 1 snapshot · hàng gộp thay đủ cả 2 khối VI", t_replace_batch_and_merged_rows),
+        ("56. [BẢN 2.9] Thay thế biên Unicode (dấu/emoji ZWJ/khối rỗng/NFD) + 10.000 hàng < 1 s", t_replace_unicode_edges_perf),
     ];
 
     let mut results = Vec::with_capacity(tests.len());
