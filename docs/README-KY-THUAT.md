@@ -16,7 +16,7 @@ giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **10
 
 ## Lịch sử bản chính
 
-- **2.9** — **[QoL 2026-10-19, nghiên cứu nhu cầu biên dịch viên — `docs/PLAN-QOL-2026-10-19.md`]** **📊 Thống kê số từ** (tính năng #2 điểm 7,7/10): nút `📊 Số từ` trên thanh công cụ + `GET /api/sessions/{id}/stats` (thuần đọc, 0 snapshot, 0 mạng) đếm **số từ / ký tự / đoạn mỗi phía** — căn cứ tính giá theo **số từ nguồn** (chuẩn ngành); kèm bảng theo 4 trạng thái, phân vùng cặp-đủ-hai-phía / chỉ-Anh / chỉ-Việt, nút **📋 Sao chép** chuỗi tiếng Việt cho thư báo giá; **số từ hiện trực tiếp trên đầu ô nhập ngay khi dán** (client-side, trước khi ghép). Quy ước công khai: từ = tách theo khoảng trắng Unicode (NBSP là khoảng trắng; emoji ZWJ = 1 từ); ký tự = scalar value **sau chuẩn hoá NFC** (crate `unicode-normalization` sẵn có cho fold — 0 phụ thuộc mới; NFD/NFC cùng con số). Selftest 41→**45** (4 bài: đếm tay corpus 164/203 từ; biên NFD/NFC/CRLF/NBSP/ZWJ; phân vùng theo tách cặp; thuần đọc + 10.000 đoạn < 300 ms).
+- **2.9** — **[QoL 2026-10-19, nghiên cứu nhu cầu biên dịch viên — `docs/PLAN-QOL-2026-10-19.md`]** hai tính năng theo kết quả nghiên cứu: **📊 Thống kê số từ** (tính năng #2 điểm 7,7/10): nút `📊 Số từ` trên thanh công cụ + `GET /api/sessions/{id}/stats` (thuần đọc, 0 snapshot, 0 mạng) đếm **số từ / ký tự / đoạn mỗi phía** — căn cứ tính giá theo **số từ nguồn** (chuẩn ngành); kèm bảng theo 4 trạng thái, phân vùng cặp-đủ-hai-phía / chỉ-Anh / chỉ-Việt, nút **📋 Sao chép** chuỗi tiếng Việt cho thư báo giá; **số từ hiện trực tiếp trên đầu ô nhập ngay khi dán** (client-side, trước khi ghép). Quy ước công khai: từ = tách theo khoảng trắng Unicode (NBSP là khoảng trắng; emoji ZWJ = 1 từ); ký tự = scalar value **sau chuẩn hoá NFC** (crate `unicode-normalization` sẵn có cho fold — 0 phụ thuộc mới; NFD/NFC cùng con số). **🔍 Bảng soát lỗi QA** (tính năng #1 điểm 7,4/10 — `src/qa.rs`): nút `🔍 Soát lỗi` + `GET /api/sessions/{id}/qa` (thuần đọc, 0 snapshot, 0 mạng, KHÔNG đụng embedder — rescan cos=1 không đổi báo cáo) chạy **8 kiểm theo danh mục chuẩn ngành ApSIC Xbench**: `numeric-mismatch` (chuẩn hoá số THEO PHÍA: EN `1,234.5`≡VI `1.234,5`; bắt dời thập phân `3.5`→`35`; số sau chữ "tháng" được tha KHI phía Anh có tên tháng — "March 12" → "12 tháng 3" là chuyển ngữ đúng), `target-same-as-source` (bỏ dịch), `length-outlier` (EN ≥ 40 ký tự mà tỉ lệ VI/EN ngoài 0.35–2.5), `double-space`, `unpaired-symbol` (cặp `() [] {} “” ‘’ «»` + `"` lẻ; `'` KHÔNG kiểm vì "don't"), `alluppercase-mismatch` (NASA mất), `missing-diacritics` (bảng ~17 từ KHÔNG nhập nhằng — cua/lam là từ hợp lệ), `nfd-mixed`. Mức Lỗi/Cần xem/Ghi chú; bấm mục → cuộn tới hàng + nháy viền (tự mở lại lọc chip/“Hiện thêm” nếu hàng đang ẩn); KHÔNG tự sửa gì. Selftest 41→45 (thống kê) →**51** (+6 bài QA: dương tính 8 kiểm đúng hàng/mức/thứ tự + JSON camelCase; âm tính don't/«»/cua/tháng-3; biên số liệu 2 phía; hàng một phía; thuần đọc + không phụ thuộc LaBSE; 10.000 đoạn ~70 ms ≪ 1 s).
 - **2.8.1** — **[SỬA SAU PHÁT HÀNH 2026-10-19, người dùng báo từ máy thật]** (chi tiết `docs/AUDIT-LOG.md` — phụ lục): selftest bài 28 & 41 phụ thuộc môi trường — trên máy CÓ LaBSE chạy thật → **39/41** (điểm rescan bị hoà trộn LaBSE `0.904` ≠ `0.760` thuần từ vựng; `labse_used=true` sai kỳ vọng) → tách `rescan_row_with`/`rescan_all_with` TIÊM nguồn cosine: bài kiểm chạy xác định với `None` (không LaBSE) lẫn `Some(1.0)` (LaBSE hoàn hảo) — đạt trên MỌI máy. Thanh trạng thái UI lấy số bản TỪ SERVER (`bản 2.8.1 · REVA`, hết ghi tay "bản 2.6" lỗi thời); UA tải URL từ `CARGO_PKG_VERSION` (hết "reva-tool/2.7" cũ). Selftest vẫn 41 bài (2 bài hermetic hoá + kiểm mạnh hơn: đường hoà trộn qua rescan thật).
 - **2.8** — **[AUDIT 2026-10-18]** (xem `docs/AUDIT-LOG.md`): mặc định bind `127.0.0.1` (mở LAN: `REVA_BIND=0.0.0.0`); chống SSRF khi tải URL (chặn IP literal/DNS nội bộ + tự theo redirect ≤5 hop có kiểm an toàn từng hop); CSV/TSV chống chèn công thức (`=` `+` `-` `@` đầu ô thêm `'`); xuất bỏ ký tự điều khiển (XLIFF/HTML luôn hợp lệ). **Tính năng**: xuất **TMX 1.2** (định dạng 8 — bộ nhớ dịch nhập thẳng OmegaT/Trados); **Rescan toàn bộ** (`POST /api/sessions/{id}/rescan-all`, 1 snapshot hoàn tác cho cả lô); kéo–thả file `.txt` vào ô nhập (FileReader cục bộ, chặn >4 MB). Selftest 35→**41**.
 - **2.7** — xuất **Excel `.xlsx` tự tô màu ô theo trạng thái hàng** (xanh `E2EFDA` = khớp + đã xác nhận, vàng `FFF2CC` = cần soát, hồng `FADCE3` = không khớp) bằng `rust_xlsxwriter`: cột STT/Tiếng Anh/Tiếng Việt/Điểm (%)/Trạng thái tiếng Việt, đóng băng dòng đầu, autofilter, chú giải màu dưới bảng; hàng gộp giữ từng đoạn một dòng trong cùng một ô. `ExportResult` thêm `bytes: Option<Vec<u8>>` (xlsx nhị phân), UI chuyển sang `res.blob()`. Selftest 33→35 bài (đọc lại file zip kiểm fill màu TỪNG HÀNG).
@@ -68,7 +68,8 @@ giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **10
   chuỗi tiếng Việt cho thư báo giá; **số từ hiện trực tiếp trên đầu ô nhập khi gõ/dán** (client-side). Quy ước
   công khai: từ = tách theo khoảng trắng Unicode (NBSP tính là khoảng trắng, emoji ghép ZWJ = 1 từ);
   ký tự = scalar value **sau chuẩn hoá NFC** — NFD (macOS) và NFC (Windows) đếm ra cùng con số. Thuần đọc.
-- **Tự kiểm tra (selftest)**: 45 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
+- **🔍 Bảng soát lỗi QA (bản 2.9)**: 8 kiểm theo danh mục chuẩn ngành ApSIC Xbench — sai số liệu (chuẩn hoá THEO PHÍA, bắt dời thập phân, tha số tháng khi EN có tên tháng), bỏ dịch (VI == EN), độ dài bất thường (ngoài 0.35–2.5 khi EN ≥ 40 ký tự), khoảng trắng thừa, ngoặc không cân, tên riêng viết hoa lệch, có thể thiếu dấu tiếng Việt (bảng từ không nhập nhằng), Unicode NFD lẫn. Mức **Lỗi / Cần xem / Ghi chú**; bấm mục → cuộn tới hàng + nháy viền; hàng một phía: kiểm 1/4/5/6/8 chạy phía có mặt, kiểm cần đủ hai phía bỏ qua. Thuần đọc tuyệt đối: không snapshot, không đổi `updated_at`, **không đụng embedder** (rescan cos=1 không đổi báo cáo — kiểm trong selftest).
+- **Tự kiểm tra (selftest)**: 51 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
   (panic `index 61`, "không ghép được bài thứ hai", "nút Ghép bị mờ sau khi tải URL", "tải URL mất mục `<li>`"),
   1 bài **tích hợp LaBSE**, 4 bài **gộp hàng** (bản 2.4), 5 bài **mô hình khối** (bản 2.5),
   **3 bài bộ lọc chrom** (bản 2.6): mega-menu/ribbon/modal/comment theo class (tuoitre.vn),
@@ -162,9 +163,10 @@ en-vi-align-rust/
 │   ├── session.rs             # phiên: tạo / mở / cập nhật / GỘP HÀNG / TÁCH / move_block / UNDO-REDO / rescan_row / NHẢ PHIÊN
 │   ├── exporter.rs            # xuất TSV / Moses / JSON / CSV / HTML / XLIFF / Excel .xlsx (tô màu ô) / TMX 1.2 với chữ `none` nguyên văn (hỗ trợ nhiều khối/hàng)
 │   ├── fetcher.rs             # tải URL + trích HTML
-│   ├── selftest.rs            # 45 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối + xlsx màu + 4 audit + TMX + rescan-all + 4 thống kê số từ)
+│   ├── selftest.rs            # 51 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối + xlsx màu + 4 audit + TMX + rescan-all + 4 thống kê số từ + 6 soát lỗi QA)
 │   ├── lexicon.rs             # từ điển Anh→Việt + danh sách từ phổ biến
 │   ├── stats.rs               # BẢN 2.9 — thống kê số từ/ký tự/đoạn (thuần đọc, đếm sau NFC)
+│   ├── qa.rs                  # BẢN 2.9 — bảng soát lỗi QA 8 kiểm (thuần đọc, không đụng embedder)
 │   └── fold.rs                # bỏ dấu tiếng Việt ("Hà Nội" → "ha noi"), chuẩn hoá số
 └── data/sessions/             # (tạo lúc chạy) nơi lưu các phiên
 ```
@@ -177,6 +179,7 @@ en-vi-align-rust/
 | GET | `/api/sessions` | Danh sách phiên |
 | GET | `/api/sessions/{id}` | Chi tiết 1 phiên (kèm `canUndo` / `canRedo`) |
 | GET | `/api/sessions/{id}/stats` | **📊 Thống kê số từ / ký tự / đoạn** (thuần đọc; từ/ký tự/đoạn mỗi phía, byStatus, phân vùng paired/enOnly/viOnly) · bản 2.9 |
+| GET | `/api/sessions/{id}/qa` | **🔍 Soát lỗi QA 8 kiểm** (thuần đọc; `{total, bySeverity, issues:[{row,severity,check,en,vi,detail}]}` — Lỗi/Cần xem/Ghi chú, bấm mục cuộn tới hàng) · bản 2.9 |
 | DELETE | `/api/sessions/{id}` | **Nhả phiên** |
 | DELETE | `/api/sessions` | Nhả tất cả |
 | PATCH | `/api/sessions/{id}/rows/{index}` | Đổi trạng thái 1 hàng (bỏ ghép sẽ tách cặp) |
@@ -188,7 +191,7 @@ en-vi-align-rust/
 | POST | `/api/sessions/{id}/redo` | **Làm lại** bước vừa hoàn tác · bản 2.5 |
 | POST | `/api/export` | Xuất file (`tsv` / `moses` / `json` / `csv` / `html` / `xliff` / `xlsx` / `tmx`) |
 | POST | `/api/fetch-url` | Tải bài từ URL |
-| GET | `/api/selftest` | Chạy 45 bài tự kiểm |
+| GET | `/api/selftest` | Chạy 51 bài tự kiểm |
 | GET | `/api/model-status` | Trạng thái động cơ + LaBSE (`labse.ready`, `labse.url`) |
 | GET | `/api/health` | Kiểm tra sống |
 
@@ -204,7 +207,7 @@ en-vi-align-rust/
 5. Khi xuất, phía thiếu ghi đúng chữ **`none`** (nguyên văn) và **không bỏ sót đoạn nào**.
 
 (LaBSE chỉ đổi **điểm gốc** trước khi vào DP — 5 bất biến và toàn bộ quy ước trạng thái giữ nguyên, được kiểm lại
-trong selftest 45 bài kể cả khi có LaBSE. Rescan bản 2.5 dùng lại đúng lõi chấm điểm của bộ ghép — không thêm thuật toán mới.)
+trong selftest 51 bài kể cả khi có LaBSE. Rescan bản 2.5 dùng lại đúng lõi chấm điểm của bộ ghép — không thêm thuật toán mới.)
 
 ## Sửa lỗi so với các bản trước
 

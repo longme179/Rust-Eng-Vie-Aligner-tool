@@ -153,7 +153,7 @@ REVA cũng chạy tốt trên điện thoại/máy tính bảng nếu mở `http
 
 ### Muốn kiểm tra máy mình cài đúng chưa?
 
-Bấm nút **🧪 Tự kiểm tra** trên góc phải — nếu mọi bài đều ✓ (45/45) là REVA chạy hoàn hảo trên máy bạn:
+Bấm nút **🧪 Tự kiểm tra** trên góc phải — nếu mọi bài đều ✓ (51/51) là REVA chạy hoàn hảo trên máy bạn:
 
 ![REVA — tự kiểm tra 35/35](docs/images/reva-selftest.png)
 
@@ -219,7 +219,8 @@ LaBSE là model hiểu nghĩa câu của Google chạy ngay trên máy bạn. B�
 - **Chạy kín trên máy bạn**: mặc định chỉ mở trên `127.0.0.1` (máy khác trong mạng KHÔNG truy cập được); muốn chia sẻ LAN thì đặt biến `REVA_BIND=0.0.0.0`.
 - **Phiên làm việc độc lập**: ghép bao nhiêu bài liên tiếp không lẫn dữ liệu; tự lưu vào `data/sessions/`, mở lại được.
 - **📊 Thống kê số từ** (bản 2.9): nút `📊 Số từ` đếm ngay số từ / ký tự / đoạn mỗi phía — **căn cứ tính giá theo số từ nguồn** (chuẩn ngành dịch thuật); kèm bảng theo trạng thái, phân vùng đã ghép/chưa có bản dịch, nút **📋 Sao chép** chuỗi tiếng Việt sẵn để dán vào thư báo giá. Số từ còn hiện trực tiếp trên đầu ô nhập ngay khi dán bài, trước khi ghép. Quy ước công khai: từ = chuỗi không khoảng trắng Unicode; ký tự = ký tự Unicode sau chuẩn hoá NFC (dán từ macOS hay Windows đều ra cùng con số).
-- **45 bài tự kiểm** nội bộ (hồi quy lỗi từng gặp + tích hợp LaBSE + Excel màu + 4 bài audit bảo mật + TMX + rescan toàn bộ + 4 bài thống kê số từ) — bấm 🧪 Tự kiểm tra bất cứ lúc nào.
+- **🔍 Soát lỗi bản dịch** (bản 2.9): nút `🔍 Soát lỗi` chạy 8 phép kiểm theo danh mục chuẩn ngành (Xbench) — **sai số liệu** (bắt cả lỗi dời dấu thập phân `3.5` → `35`; tha số tháng khi phía Anh có tên tháng), **bỏ dịch** (VI giống hệt EN), **độ dài bất thường**, **khoảng trắng thừa**, **ngoặc không cân**, **tên riêng viết hoa mất/thêm** (NASA), **thiếu dấu tiếng Việt**, **Unicode NFD lẫn**. Danh sách vấn đề xếp theo mức Lỗi / Cần xem / Ghi chú — bấm từng mục nhảy thẳng tới hàng trong bảng. Thuần đọc: **không tự sửa gì**, không đụng LaBSE (kết quả giống hệt khi có/không LaBSE).
+- **51 bài tự kiểm** nội bộ (hồi quy lỗi từng gặp + tích hợp LaBSE + Excel màu + 4 bài audit bảo mật + TMX + rescan toàn bộ + 4 bài thống kê số từ + 6 bài soát lỗi QA) — bấm 🧪 Tự kiểm tra bất cứ lúc nào.
 
 Chi tiết thuật toán, API HTTP, cấu trúc mã nguồn, bất biến kiểm chứng và lịch sử các bản: xem **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.
 
@@ -231,7 +232,7 @@ REVA là một binary Rust duy nhất (axum + tokio) nhúng sẵn giao diện, k
 
 ```bash
 cargo run --release        # build + chạy tại http://localhost:3000
-cargo test                 # test biên dịch — 45 bài selftest đầy đủ chạy qua GET /api/selftest
+cargo test                 # test biên dịch — 51 bài selftest đầy đủ chạy qua GET /api/selftest
 ```
 
 Đổi cổng: `PORT=1709 cargo run --release`. Đổi thư mục dữ liệu: `REVA_DATA_DIR=...`. Xem đầy đủ API + tài liệu kỹ thuật tại **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.

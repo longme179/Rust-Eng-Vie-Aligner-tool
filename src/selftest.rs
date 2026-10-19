@@ -23,10 +23,14 @@
 //! BẢN 2.9 thêm 4 bài THỐNG KÊ SỐ TỪ (căn cứ tính giá dịch — docs/PLAN-QOL-2026-10-19.md):
 //! corpus chuẩn ra đúng số đếm tay, quy ước biên NFD/NFC/CRLF/emoji ZWJ,
 //! phân vùng hàng paired/một-phía, thuần đọc + 10.000 đoạn < 300 ms.
+//! BẢN 2.9 thêm 6 bài BẢNG SOÁT LỖI QA (8 kiểm chuẩn ngành — §3.2): dương tính
+//! từng loại, âm tính (không báo oan), biên số liệu hai phía, hàng một phía,
+//! thuần đọc + không phụ thuộc LaBSE, hiệu năng 10.000 đoạn < 1 s.
 
 use crate::aligner::{self, AlignOptions, Row, Status};
 use crate::exporter::{export_session, ExportFormat};
 use crate::fetcher;
+use crate::qa::{self, Severity};
 use crate::session::{derive_title, generate_id, Session, SessionStore, Side};
 use crate::stats;
 use serde::Serialize;
@@ -3274,6 +3278,400 @@ fn t_stats_readonly_perf() -> Result<(), String> {
     Ok(())
 }
 
+// ========================= BẢN 2.9: bảng soát lỗi QA (8 kiểm, thuần đọc) =========================
+
+/// 46. [BẢN 2.9] QA DƯƠNG TÍNH: phiên dựng tay 8 hàng, mỗi hàng đúng 1 loại lỗi —
+///     từng kiểm phải nổ đúng hàng, đúng mức (error/warning/info), đúng thứ tự ổn định;
+///     bySeverity cộng đúng; hình dạng JSON (camelCase) như giao diện đang đọc.
+fn t_qa_detects_all_eight() -> Result<(), String> {
+    let en = vec![
+        "The price is 3.5 million".to_string(),
+        "Hello world banner".to_string(),
+        "This is a very long English source sentence that spans more than forty characters"
+            .to_string(),
+        "Alpha  beta".to_string(),
+        "See (note".to_string(),
+        "NASA launched the rocket".to_string(),
+        "I do not know among those things".to_string(),
+        "Coffee filter paper".to_string(),
+    ];
+    let vi = vec![
+        "Giá là 35 triệu".to_string(),
+        "Hello world banner".to_string(),
+        "Ngắn".to_string(),
+        " Ok ".to_string(),
+        "Xem ghi chú".to_string(),
+        "Nasa phóng tên lửa".to_string(),
+        "Toi khong biet giua nhung dieu do".to_string(),
+        "Cafe\u{0301} phin".to_string(),
+    ];
+    let rows: Vec<Row> = (0..8)
+        .map(|k| pair_row(k, k, &en, &vi, Status::NeedsReview, None))
+        .collect();
+    let rep = qa::report(&manual_session(en, vi, rows));
+    if rep.total != 8 || rep.issues.len() != 8 {
+        let found: Vec<String> = rep
+            .issues
+            .iter()
+            .map(|i| format!("h{}:{}", i.row, i.check))
+            .collect();
+        return Err(format!(
+            "phải phát hiện đúng 8 vấn đề (mỗi hàng 1 loại), được {}: {}",
+            rep.total,
+            found.join(", ")
+        ));
+    }
+    let expect: [(usize, &str, Severity); 8] = [
+        (0, "numeric-mismatch", Severity::Error),
+        (1, "target-same-as-source", Severity::Error),
+        (2, "length-outlier", Severity::Warning),
+        (3, "double-space", Severity::Warning),
+        (4, "unpaired-symbol", Severity::Warning),
+        (5, "alluppercase-mismatch", Severity::Warning),
+        (6, "missing-diacritics", Severity::Info),
+        (7, "nfd-mixed", Severity::Info),
+    ];
+    for (k, (row, check, sev)) in expect.iter().enumerate() {
+        let it = &rep.issues[k];
+        if it.row != *row || it.check != *check || it.severity != *sev {
+            return Err(format!(
+                "vấn đề {}: hàng {} / {} / {:?} — kỳ vọng hàng {} / {} / {:?}",
+                k, it.row, it.check, it.severity, row, check, sev
+            ));
+        }
+    }
+    // bySeverity đếm đúng theo mức
+    if rep.by_severity.get("error") != Some(&2)
+        || rep.by_severity.get("warning") != Some(&4)
+        || rep.by_severity.get("info") != Some(&2)
+    {
+        return Err(format!("bySeverity sai: {:?}", rep.by_severity));
+    }
+    // chi tiết có con số/từ khoá người soát cần thấy
+    if !rep.issues[0].detail.contains("3.5") || !rep.issues[0].detail.contains("35") {
+        return Err("kiểm số liệu phải nêu cả 3.5 (thiếu) lẫn 35 (thừa)".into());
+    }
+    if !rep.issues[6].detail.contains("khong → không")
+        || !rep.issues[6].detail.contains("giua → giữa")
+    {
+        return Err("kiểm thiếu dấu phải gợi ý dạng đúng (khong → không…)".into());
+    }
+    // hình dạng JSON khoá camelCase như giao diện đang đọc (row/severity/check/en/vi/detail)
+    let v = serde_json::to_value(&rep).map_err(|e| e.to_string())?;
+    if v["bySeverity"]["error"].as_u64() != Some(2)
+        || v["total"].as_u64() != Some(8)
+        || v["issues"].as_array().map(|a| a.len()) != Some(8)
+    {
+        return Err("JSON báo cáo phải có bySeverity/total/issues đúng hình dạng".into());
+    }
+    if v["issues"][0]["check"].as_str() != Some("numeric-mismatch")
+        || v["issues"][0]["severity"].as_str() != Some("error")
+        || v["issues"][0]["row"].as_u64() != Some(0)
+    {
+        return Err("JSON issue[0] phải là numeric-mismatch/error/row 0".into());
+    }
+    Ok(())
+}
+
+/// 47. [BẢN 2.9] QA ÂM TÍNH (không báo oan): 4.000≡4,000 · dấu nháy đơn "don't"
+///     không bị coi là ngoặc lẻ · " «» cân · từ VI hợp lệ không dấu (cua, lam) không
+///     bị to là thiếu dấu · NASA/WHO hai phía · độ dài trong khoảng · ngày tháng
+///     ("March 12" → "12 tháng 3") · sạch = 0 vấn đề.
+fn t_qa_no_false_positives() -> Result<(), String> {
+    let en = vec![
+        "We paid 4,000 dollars for 12 tickets".to_string(),
+        "Don't stop believing".to_string(),
+        "She said \"hello\" to me".to_string(),
+        "He read «the news» today".to_string(),
+        "NASA and WHO signed the memo".to_string(),
+        "The quick brown fox jumps over the lazy dog near the river bank".to_string(),
+        "Units cost 2000 each".to_string(),
+        // tên tháng VI viết thành số ("March 12" → "12 tháng 3") — chuyển ngữ đúng,
+        // KHÔNG được báo sai số liệu (phát hiện khi QA agent-browser trên bài mẫu demo)
+        "Hanoi hosted the Green Tech Summit from March 12 to March 15, 2025, drawing more than 4,000 participants from 32 countries.".to_string(),
+    ];
+    let vi = vec![
+        "Chúng tôi trả 4.000 đô cho 12 vé".to_string(),
+        "Đừng ngừng tin tưởng".to_string(),
+        "Cô ấy chào tôi".to_string(),
+        "Ông đọc «tin tức» hôm nay".to_string(),
+        "NASA và WHO ký bản ghi nhớ".to_string(),
+        "Con cáo nâu nhanh nhẹn nhảy qua con chó lười biếng gần bờ sông".to_string(),
+        "Mỗi đơn vị giá 2.000".to_string(),
+        "Hà Nội tổ chức Hội nghị Công nghệ Xanh từ ngày 12 tháng 3 đến 15 tháng 3 năm 2025, thu hút hơn 4.000 người tham dự từ 32 quốc gia.".to_string(),
+    ];
+    let rows: Vec<Row> = (0..en.len())
+        .map(|k| pair_row(k, k, &en, &vi, Status::AutoMatched, Some(0.8)))
+        .collect();
+    let rep = qa::report(&manual_session(en, vi, rows));
+    if rep.total != 0 {
+        let found: Vec<String> = rep
+            .issues
+            .iter()
+            .map(|i| format!("h{} {} — {}", i.row, i.check, i.detail))
+            .collect();
+        return Err(format!(
+            "phiên SẠCH phải 0 vấn đề, được {}: {}",
+            rep.total,
+            found.join(" | ")
+        ));
+    }
+    // từ tiếng Việt HỢP LỆ không dấu (con cua, màu lam) không bị to là thiếu dấu
+    let en2 = vec!["He ate the crab".to_string()];
+    let vi2 = vec!["Anh ta ăn con cua với màu lam".to_string()];
+    let rows2 = vec![pair_row(0, 0, &en2, &vi2, Status::AutoMatched, None)];
+    let rep2 = qa::report(&manual_session(en2, vi2, rows2));
+    if rep2.total != 0 {
+        return Err(format!(
+            "“cua/lam” là từ tiếng Việt hợp lệ — không được báo thiếu dấu: {}",
+            rep2.issues[0].detail
+        ));
+    }
+    // phiên rỗng → 0 vấn đề
+    let rep0 = qa::report(&manual_session(Vec::new(), Vec::new(), Vec::new()));
+    if rep0.total != 0 || !rep0.issues.is_empty() {
+        return Err("phiên rỗng phải 0 vấn đề".into());
+    }
+    Ok(())
+}
+
+/// 48. [BẢN 2.9] QA SỐ LIỆU: chuẩn hoá THEO PHÍA bắt được lỗi dời dấu thập phân
+///     (EN 3.5 vs VI 35), thiếu/thừa lần lặp (7 và 7 → chỉ 1 lần 7), $ % không tính
+///     vào token số; 1,234.5 ≡ 1.234,5 và 2000 ≡ 2.000 không bị oan; tên tháng VI
+///     viết thành số ("tháng 10") chỉ được tha KHI phía Anh có tên tháng tiếng Anh.
+fn t_qa_numeric_edges() -> Result<(), String> {
+    let en = vec![
+        "Mixed 1,234.5 and 4,000 here".to_string(),
+        "Rate is 3.5 percent".to_string(),
+        "costs $100 and 50% more".to_string(),
+        "twice 7 and 7 again".to_string(),
+        // có tên tháng tiếng Anh → số sau "tháng" bên VI là chuyển ngữ đúng (không nổ)
+        "Episode 3 aired in October.".to_string(),
+        // KHÔNG có tên tháng → "tháng 10" là số thừa thật (phải nổ)
+        "Episode 3 aired this week.".to_string(),
+    ];
+    let vi = vec![
+        "Hỗn hợp 1.234,5 và 4.000 ở đây".to_string(),
+        "Tỉ lệ là 35 phần trăm".to_string(),
+        "tốn 100 đô và hơn 50% nữa".to_string(),
+        "hai lần 7 thôi".to_string(),
+        "Tập 3 phát sóng vào tháng 10.".to_string(),
+        "Tập 3 phát sóng vào tháng 10.".to_string(),
+    ];
+    let rows: Vec<Row> = (0..6)
+        .map(|k| pair_row(k, k, &en, &vi, Status::NeedsReview, None))
+        .collect();
+    let rep = qa::report(&manual_session(en, vi, rows));
+    let num: Vec<&qa::Issue> = rep
+        .issues
+        .iter()
+        .filter(|i| i.check == "numeric-mismatch")
+        .collect();
+    if num.len() != 3 {
+        let all: Vec<String> = rep
+            .issues
+            .iter()
+            .map(|i| format!("h{}:{}", i.row, i.check))
+            .collect();
+        return Err(format!(
+            "phải có đúng 3 vấn đề số liệu (hàng 1, 3 và 5), được {}: {}",
+            num.len(),
+            all.join(", ")
+        ));
+    }
+    if num[0].row != 1 || num[1].row != 3 || num[2].row != 5 {
+        return Err(format!(
+            "số liệu phải ở hàng 1, 3 và 5, được {}, {} và {}",
+            num[0].row, num[1].row, num[2].row
+        ));
+    }
+    if !num[0].detail.contains("3.5") || !num[0].detail.contains("35") {
+        return Err(format!(
+            "lỗi dời thập phân phải nêu 3.5 và 35: {}",
+            num[0].detail
+        ));
+    }
+    if !num[1].detail.contains("7") {
+        return Err(format!("thiếu 1 lần số 7 phải được nêu: {}", num[1].detail));
+    }
+    if !num[2].detail.contains("10") {
+        return Err(format!(
+            "số sau \"tháng\" khi KHÔNG có tên tháng EN phải bị bắt là thừa: {}",
+            num[2].detail
+        ));
+    }
+    if num[0].severity != Severity::Error || num[2].severity != Severity::Error {
+        return Err("sai số liệu phải là mức Lỗi (error)".into());
+    }
+    // không kiểm nào khác nổ trên 6 hàng này (đều sạch về khoảng trắng/ngoặc/hoa…)
+    if rep.total != 3 {
+        let all: Vec<String> = rep
+            .issues
+            .iter()
+            .map(|i| format!("h{}:{}", i.row, i.check))
+            .collect();
+        return Err(format!(
+            "6 hàng này chỉ có 3 lỗi số liệu, được {}: {}",
+            rep.total,
+            all.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// 49. [BẢN 2.9] QA HÀNG MỘT PHÍA: kiểm 1/4/5/6/8 chạy trên phía CÓ MẶT (soát đúng
+///     nghĩa — số bên thiếu được liệt kê); kiểm 2/3 (cần đủ hai phía) bỏ qua.
+fn t_qa_single_side() -> Result<(), String> {
+    let en_doc = vec!["NASA spent  1,000 dollars (".to_string()];
+    let vi_doc = vec!["Khong duoc di lu\u{0301}c nay".to_string()];
+    let rows = vec![
+        Row::single_side(Some((0, en_doc[0].clone())), None, Status::Unmatched),
+        Row::single_side(None, Some((0, vi_doc[0].clone())), Status::Unmatched),
+    ];
+    let rep = qa::report(&manual_session(en_doc, vi_doc, rows));
+    // hàng 0 (chỉ EN): số liệu thiếu + khoảng trắng kép + ngoặc mở + NASA mất = 4 vấn đề
+    let row0: Vec<&str> = rep
+        .issues
+        .iter()
+        .filter(|i| i.row == 0)
+        .map(|i| i.check)
+        .collect();
+    let want0 = [
+        "numeric-mismatch",
+        "double-space",
+        "unpaired-symbol",
+        "alluppercase-mismatch",
+    ];
+    for w in want0 {
+        if !row0.contains(&w) {
+            return Err(format!(
+                "hàng chỉ-EN phải nổ {} (kiểm chạy trên phía có mặt), được: {:?}",
+                w, row0
+            ));
+        }
+    }
+    if row0.len() != want0.len() {
+        return Err(format!(
+            "hàng chỉ-EN phải đúng {} vấn đề, được {}: {:?}",
+            want0.len(),
+            row0.len(),
+            row0
+        ));
+    }
+    // hàng 1 (chỉ VI): thiếu dấu (khong/duoc) + NFD lẫn = 2 vấn đề
+    let row1: Vec<&str> = rep
+        .issues
+        .iter()
+        .filter(|i| i.row == 1)
+        .map(|i| i.check)
+        .collect();
+    if row1.len() != 2 || !row1.contains(&"missing-diacritics") || !row1.contains(&"nfd-mixed") {
+        return Err(format!(
+            "hàng chỉ-VI phải nổ missing-diacritics + nfd-mixed, được {:?}",
+            row1
+        ));
+    }
+    // kiểm 2/3 không bao giờ nổ trên hàng một phía
+    for i in &rep.issues {
+        if i.check == "target-same-as-source" || i.check == "length-outlier" {
+            return Err(format!(
+                "kiểm {} cần đủ hai phía — không được nổ trên hàng một phía",
+                i.check
+            ));
+        }
+    }
+    if rep.total != 6 {
+        return Err(format!("tổng phải 4 + 2 = 6, được {}", rep.total));
+    }
+    Ok(())
+}
+
+/// 50. [BẢN 2.9] QA THUẦN ĐỌC + KHÔNG PHỤ THUỘC LaBSE: report() không đổi phiên
+///     (JSON hàng nguyên xi, 0 snapshot, updated_at giữ); chạy 2 lần ra báo cáo
+///     GIỐNG HỆT (tất định); rescan cả lô với cos tiêm = 1 (đường LaBSE) đổi điểm /
+///     trạng thái nhưng BÁO CÁO QA KHÔNG ĐỔI — QA không đụng embedder.
+fn t_qa_readonly_labse_independent() -> Result<(), String> {
+    let store = temp_store("qa1");
+    let mut s = align_to_session(&store, &corpus_en(), &corpus_vi())?;
+    let before = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+    let before_upd = s.updated_at;
+    let rep1 = qa::report(&s);
+    let rep2 = qa::report(&s); // chạy 2 lần — tất định
+    if rep1 != rep2 {
+        return Err("chạy 2 lần phải ra báo cáo giống hệt (tất định)".into());
+    }
+    let j1 = serde_json::to_string(&rep1).map_err(|e| e.to_string())?;
+    let j2 = serde_json::to_string(&rep2).map_err(|e| e.to_string())?;
+    if j1 != j2 {
+        return Err("JSON hai lần chạy phải giống hệt (BTreeMap ổn định thứ tự)".into());
+    }
+    let after = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+    if before != after {
+        return Err("qa::report() phải THUẦN ĐỌC — không được thay đổi hàng nào".into());
+    }
+    if !s.undo_stack.is_empty() || !s.redo_stack.is_empty() {
+        return Err("qa::report() không được đẩy snapshot hoàn tác".into());
+    }
+    if s.updated_at != before_upd {
+        return Err("qa::report() không được đổi updated_at của phiên".into());
+    }
+    // đường CÓ LaBSE: chấm lại cả lô với cos=1 — điểm/trạng thái có thể đổi,
+    // văn bản không đổi → báo cáo QA phải Y NGUYÊN
+    s.rescan_all_with(&|_, _| Some(1.0))
+        .map_err(|e| format!("rescan để thử phải được: {}", e))?;
+    let rep3 = qa::report(&s);
+    if rep1 != rep3 {
+        return Err("QA không được phụ thuộc LaBSE/rescan — báo cáo phải giống hệt".into());
+    }
+    Ok(())
+}
+
+/// 51. [BẢN 2.9] QA HIỆU NĂNG: phiên 10.000 cặp đủ hai phía (số liệu mỗi hàng —
+///     công việc dày nhất của kiểm 1) soát dưới 1.000 ms và 0 báo oan.
+fn t_qa_perf_10k() -> Result<(), String> {
+    let n = 10_000usize;
+    let en: Vec<String> = (0..n)
+        .map(|k| {
+            format!(
+                "Report {} says Alpha Corp shipped {} units worth {} million dollars.",
+                k,
+                100 + k,
+                10 + k
+            )
+        })
+        .collect();
+    let vi: Vec<String> = (0..n)
+        .map(|k| {
+            format!(
+                "Báo cáo {} cho biết Alpha Corp đã xuất {} sản phẩm trị giá {} triệu đô la.",
+                k,
+                100 + k,
+                10 + k
+            )
+        })
+        .collect();
+    let rows: Vec<Row> = (0..n)
+        .map(|k| pair_row(k, k, &en, &vi, Status::NeedsReview, None))
+        .collect();
+    let big = manual_session(en, vi, rows);
+    let t0 = Instant::now();
+    let rep = qa::report(&big);
+    let ms = t0.elapsed().as_millis();
+    if ms >= 1_000 {
+        return Err(format!(
+            "soát {} đoạn mất {} ms — vượt ngân sách 1.000 ms",
+            n, ms
+        ));
+    }
+    if rep.total != 0 {
+        return Err(format!(
+            "10.000 hàng sạch phải 0 báo oan, được {}: {}",
+            rep.total, rep.issues[0].detail
+        ));
+    }
+    Ok(())
+}
+
 pub fn run_all() -> Vec<TestResult> {
     let tests: Vec<(&str, fn() -> Result<(), String>)> = vec![
         ("01. tách đoạn (dòng trống / dòng đơn / CRLF)", t_split_paragraphs),
@@ -3321,6 +3719,12 @@ pub fn run_all() -> Vec<TestResult> {
         ("43. [BẢN 2.9] Quy ước đếm biên: NFD/NFC cùng số từ lẫn ký tự · CRLF/NBSP/emoji ZWJ · trắng thuần = 0", t_stats_nfd_crlf_edge),
         ("44. [BẢN 2.9] Phân vùng hàng phản ánh đúng tách cặp (paired/en_only/vi_only + byStatus từng bước)", t_stats_rows_partition),
         ("45. [BẢN 2.9] Thống kê thuần đọc (không đổi phiên/histo) + 10.000 đoạn < 300 ms", t_stats_readonly_perf),
+        ("46. [BẢN 2.9] QA 8 kiểm: dương tính từng loại — đúng hàng, đúng mức, đúng thứ tự + JSON camelCase", t_qa_detects_all_eight),
+        ("47. [BẢN 2.9] QA không báo oan: 4.000≡4,000 · don't · «» cân · từ hợp lệ không dấu · sạch = 0", t_qa_no_false_positives),
+        ("48. [BẢN 2.9] QA số liệu: bắt dời thập phân (3.5→35) · thiếu/thừa lần lặp · $ % không tính", t_qa_numeric_edges),
+        ("49. [BẢN 2.9] QA hàng một phía: kiểm 1/4/5/6/8 chạy phía có mặt, kiểm 2/3 bỏ; phiên rỗng = 0", t_qa_single_side),
+        ("50. [BẢN 2.9] QA thuần đọc + tất định + không phụ thuộc LaBSE (rescan cos=1 không đổi báo cáo)", t_qa_readonly_labse_independent),
+        ("51. [BẢN 2.9] QA hiệu năng: 10.000 đoạn đủ hai phía soát dưới 1.000 ms, 0 báo oan", t_qa_perf_10k),
     ];
 
     let mut results = Vec::with_capacity(tests.len());
