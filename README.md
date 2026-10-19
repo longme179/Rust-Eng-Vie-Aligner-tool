@@ -6,6 +6,7 @@
 
 - 🏠 **Chạy 100% trên máy bạn** — văn bản của bạn không bị gửi lên Internet đâu cả.
 - 🖱️ **Kéo–thả từng đoạn** để sắp xếp lại; làm sai thì **Ctrl+Z hoàn tác ngay**.
+- 🌙 **Giao diện sáng/tối** (bản 2.9): bấm nút mặt trời/mặt trăng ở góc phải thanh đầu — lựa chọn được ghi nhớ trên máy bạn.
 - 🎨 **Xuất Excel tự tô màu**: <span>🟩</span> xanh = khớp · 🟨 vàng = cần soát · 🩷 hồng = không khớp.
 
 > Dùng tốt cho: biên dịch viên, dịch giả sách/truyện, đội dịch nội dung, người học dịch — bất kỳ ai có **2 văn bản song ngữ** cần ghép cặp từng đoạn.
@@ -211,17 +212,18 @@ LaBSE là model hiểu nghĩa câu của Google chạy ngay trên máy bạn. B�
 
 - **Ghép đoạn song ngữ** bằng điểm tương đồng (từ điển Anh–Việt ~500 mục, số liệu, tên riêng, vị trí tương đối) + quy hoạch động — không cần GPU.
 - **LaBSE tuỳ chọn**: hoà trộn điểm từ vựng với cosine LaBSE (nguyên tắc *chỉ nâng không hạ*) → chính xác hơn hẳn.
-- **Mô hình khối kéo–thả tự do**: mỗi đoạn là một khối; kéo ghép/tách/đổi thứ tự; **Ctrl+Z hoàn tác 40 bước**; `↻ Rescan LaBSE` chấm lại điểm từng hàng; `↻ Rescan tất cả` chấm lại MỌI hàng một nhấn (hoàn tác cả lô bằng 1 Ctrl+Z).
+- **Mô hình khối kéo–thả tự do**: mỗi đoạn là một khối; kéo ghép/tách/đổi thứ tự; **Ctrl+Z hoàn tác 40 bước**; `Rescan LaBSE` chấm lại điểm từng hàng; `Rescan tất cả` chấm lại MỌI hàng một nhấn (hoàn tác cả lô bằng 1 Ctrl+Z).
 - **4 trạng thái chuẩn**: Tự khớp · Cần soát · Không khớp · Đã xác nhận — hiển thị bằng màu trong giao diện lẫn file xuất.
 - **Xuất 8 định dạng**: Excel `.xlsx` (tự tô màu từng hàng), CSV, TSV, Moses, JSON, HTML (bảng có màu), XLIFF 1.2, và **TMX 1.2 — bộ nhớ dịch nhập thẳng vào OmegaT/Trados**. Đoạn thiếu một phía ghi đúng chữ `none`.
 - **Tải bài từ URL**: dán link bài báo tiếng Anh/tiếng Việt — REVA tự trích nội dung, lọc sạch menu/quảng cáo/caption ảnh; **chỉ tải trang công khai** (chặn địa chỉ nội bộ — chống SSRF).
 - **Kéo–thả file .txt**: thả file vào ô tiếng Anh/tiếng Việt là nạp ngay (đọc cục bộ, không upload); thả 2 file cùng lúc vào ô nào cũng được (file 1 → ô đó, file 2 → ô còn lại).
 - **Chạy kín trên máy bạn**: mặc định chỉ mở trên `127.0.0.1` (máy khác trong mạng KHÔNG truy cập được); muốn chia sẻ LAN thì đặt biến `REVA_BIND=0.0.0.0`.
 - **Phiên làm việc độc lập**: ghép bao nhiêu bài liên tiếp không lẫn dữ liệu; tự lưu vào `data/sessions/`, mở lại được.
-- **📊 Thống kê số từ** (bản 2.9): nút `📊 Số từ` đếm ngay số từ / ký tự / đoạn mỗi phía — **căn cứ tính giá theo số từ nguồn** (chuẩn ngành dịch thuật); kèm bảng theo trạng thái, phân vùng đã ghép/chưa có bản dịch, nút **📋 Sao chép** chuỗi tiếng Việt sẵn để dán vào thư báo giá. Số từ còn hiện trực tiếp trên đầu ô nhập ngay khi dán bài, trước khi ghép. Quy ước công khai: từ = chuỗi không khoảng trắng Unicode; ký tự = ký tự Unicode sau chuẩn hoá NFC (dán từ macOS hay Windows đều ra cùng con số).
-- **🔍 Soát lỗi bản dịch** (bản 2.9): nút `🔍 Soát lỗi` chạy 8 phép kiểm theo danh mục chuẩn ngành (Xbench) — **sai số liệu** (bắt cả lỗi dời dấu thập phân `3.5` → `35`; tha số tháng khi phía Anh có tên tháng), **bỏ dịch** (VI giống hệt EN), **độ dài bất thường**, **khoảng trắng thừa**, **ngoặc không cân**, **tên riêng viết hoa mất/thêm** (NASA), **thiếu dấu tiếng Việt**, **Unicode NFD lẫn**. Danh sách vấn đề xếp theo mức Lỗi / Cần xem / Ghi chú — bấm từng mục nhảy thẳng tới hàng trong bảng. Thuần đọc: **không tự sửa gì**, không đụng LaBSE (kết quả giống hệt khi có/không LaBSE).
-- **🔎 Tìm / lọc / thay thế hàng loạt** (bản 2.9): ô **Tìm trong bảng** lọc tức thì theo chữ (không phân biệt hoa thường, tô sáng khối chứa chuỗi, đếm n/tổng hàng); nút **✏️ Thay thế** xem trước số chỗ rồi áp một lần cho cả cột (Anh hoặc Việt, tuỳ chọn phân biệt hoa thường) — phát hiện “United Nations” dịch 2 kiểu hay lỗi chính tả lặp 40 chỗ thì sửa MỘT lần; **Ctrl+Z hoàn tác cả lô**. Chuỗi tìm là đoạn văn bản thường (không phải regex); 0 chỗ khớp thì không đổi gì.
-- **56 bài tự kiểm** nội bộ (hồi quy lỗi từng gặp + tích hợp LaBSE + Excel màu + 4 bài audit bảo mật + TMX + rescan toàn bộ + 4 bài thống kê số từ + 6 bài soát lỗi QA + 5 bài tìm/thay thế) — bấm 🧪 Tự kiểm tra bất cứ lúc nào.
+- **📊 Thống kê số từ** (bản 2.9): nút `Số từ` đếm ngay số từ / ký tự / đoạn mỗi phía — **căn cứ tính giá theo số từ nguồn** (chuẩn ngành dịch thuật); kèm bảng theo trạng thái, phân vùng đã ghép/chưa có bản dịch, nút **Sao chép** chuỗi tiếng Việt sẵn để dán vào thư báo giá. Số từ còn hiện trực tiếp trên đầu ô nhập ngay khi dán bài, trước khi ghép. Quy ước công khai: từ = chuỗi không khoảng trắng Unicode; ký tự = ký tự Unicode sau chuẩn hoá NFC (dán từ macOS hay Windows đều ra cùng con số).
+- **🔍 Soát lỗi bản dịch** (bản 2.9): nút `Soát lỗi` chạy 8 phép kiểm theo danh mục chuẩn ngành (Xbench) — **sai số liệu** (bắt cả lỗi dời dấu thập phân `3.5` → `35`; tha số tháng khi phía Anh có tên tháng), **bỏ dịch** (VI giống hệt EN), **độ dài bất thường**, **khoảng trắng thừa**, **ngoặc không cân**, **tên riêng viết hoa mất/thêm** (NASA), **thiếu dấu tiếng Việt**, **Unicode NFD lẫn**. Danh sách vấn đề xếp theo mức Lỗi / Cần xem / Ghi chú — bấm từng mục nhảy thẳng tới hàng trong bảng. Thuần đọc: **không tự sửa gì**, không đụng LaBSE (kết quả giống hệt khi có/không LaBSE).
+- **🔎 Tìm / lọc / thay thế hàng loạt** (bản 2.9): ô **Tìm trong bảng** lọc tức thì theo chữ (không phân biệt hoa thường, tô sáng khối chứa chuỗi, đếm n/tổng hàng); nút **Thay thế** xem trước số chỗ rồi áp một lần cho cả cột (Anh hoặc Việt, tuỳ chọn phân biệt hoa thường) — phát hiện “United Nations” dịch 2 kiểu hay lỗi chính tả lặp 40 chỗ thì sửa MỘT lần; **Ctrl+Z hoàn tác cả lô**. Chuỗi tìm là đoạn văn bản thường (không phải regex); 0 chỗ khớp thì không đổi gì.
+- **🎨 Giao diện dọn lại cho chuyên nghiệp** (bản 2.9): hệ biểu tượng SVG sắc nét thay cho emoji, bộ màu thống nhất theo token, **chế độ tối** tự theo máy + đổi được bằng một nút, hộp thoại/ngăn kéo/toast làm lại, hỗ trợ `prefers-reduced-motion` — mọi nút và lệnh giữ nguyên chỗ cũ.
+- **56 bài tự kiểm** nội bộ (hồi quy lỗi từng gặp + tích hợp LaBSE + Excel màu + 4 bài audit bảo mật + TMX + rescan toàn bộ + 4 bài thống kê số từ + 6 bài soát lỗi QA + 5 bài tìm/thay thế) — bấm `Tự kiểm tra` bất cứ lúc nào.
 
 Chi tiết thuật toán, API HTTP, cấu trúc mã nguồn, bất biến kiểm chứng và lịch sử các bản: xem **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.
 
