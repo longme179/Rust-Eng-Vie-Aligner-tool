@@ -297,6 +297,70 @@ async fn api_session_qa(State(state): State<SharedState>, Path(id): Path<String>
     ok_json(serde_json::to_value(&rep).unwrap_or(serde_json::Value::Null))
 }
 
+/// Body của POST /api/sessions/{id}/replace (BẢN 2.9 — F3 tìm/thay hàng loạt).
+#[derive(Deserialize, Default)]
+struct ReplaceRequest {
+    find: String,
+    #[serde(default)]
+    replace: String,
+    /// Cột áp dụng: "vi" (mặc định người dùng sửa bản dịch) hoặc "en".
+    #[serde(default)]
+    column: String,
+    #[serde(default)]
+    case_sensitive: bool,
+}
+
+/// BẢN 2.9 — THAY THẾ HÀNG LOẠT (F3): thay `find` → `replace` trong MỌI khối của
+/// cột chọn, MỘT snapshot hoàn tác cho cả lô (Ctrl+Z trả nguyên xi); 0 chỗ khớp
+/// → 200 changed:0, KHÔNG snapshot. Tài liệu gốc được đồng bộ theo hàng — xuất
+/// file kiểm bất biến vẫn OK. Xem docs/PLAN-QOL-2026-10-19.md §3.3.
+async fn api_session_replace(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    body: Result<Json<ReplaceRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let req = match body {
+        Ok(Json(r)) => r,
+        Err(e) => {
+            return err_json(
+                StatusCode::BAD_REQUEST,
+                &format!("Dữ liệu không đúng: {}", e),
+            )
+        }
+    };
+    let side = match session::Side::parse(&req.column) {
+        Some(s) => s,
+        None => {
+            return err_json(
+                StatusCode::BAD_REQUEST,
+                "Cột phải là \"vi\" (tiếng Việt) hoặc \"en\" (tiếng Anh).",
+            )
+        }
+    };
+    let mut s = match state.store.get(&id) {
+        Some(s) => s,
+        None => return err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên để thay thế."),
+    };
+    let out = match s.replace_all(side, &req.find, &req.replace, req.case_sensitive) {
+        Ok(o) => o,
+        Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
+    };
+    if out.changed > 0 {
+        if let Err(e) = state.store.save(&s) {
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Không lưu được: {}", e),
+            );
+        }
+    }
+    let mut v = session_value(&s, false);
+    v["changed"] = json!(out.changed);
+    v["blocks"] = json!(out.blocks);
+    v["rowsAffected"] = json!(out.rows);
+    v["column"] = json!(side.as_str());
+    ok_json(v)
+}
+
 async fn api_sessions_delete_all(State(state): State<SharedState>) -> Response {
     let n = state.store.delete_all();
     println!("[reva-tool] đã nhả tất cả {} phiên", n);
@@ -816,7 +880,7 @@ struct DebugQuery {
 }
 
 async fn api_not_found(Query(_q): Query<DebugQuery>) -> Response {
-    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health, /api/sessions/{id} (GET thông tin phiên · GET /stats thống kê số từ · GET /qa soát lỗi QA · DELETE nhả), /api/sessions/{id}/rows/{index} (PATCH đổi trạng thái), /api/sessions/{id}/rows/{index}/merge (POST gộp hàng), /api/sessions/{id}/rows/{index}/rescan (POST chấm lại điểm), /api/sessions/{id}/rescan-all (POST chấm lại toàn bộ), /api/sessions/{id}/blocks/move (POST di chuyển khối), /api/sessions/{id}/undo và /api/sessions/{id}/redo (POST hoàn tác / làm lại).")
+    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health, /api/sessions/{id} (GET thông tin phiên · GET /stats thống kê số từ · GET /qa soát lỗi QA · DELETE nhả), /api/sessions/{id}/replace (POST thay thế hàng loạt), /api/sessions/{id}/rows/{index} (PATCH đổi trạng thái), /api/sessions/{id}/rows/{index}/merge (POST gộp hàng), /api/sessions/{id}/rows/{index}/rescan (POST chấm lại điểm), /api/sessions/{id}/rescan-all (POST chấm lại toàn bộ), /api/sessions/{id}/blocks/move (POST di chuyển khối), /api/sessions/{id}/undo và /api/sessions/{id}/redo (POST hoàn tác / làm lại).")
 }
 
 // ========================= Main =========================
@@ -944,6 +1008,8 @@ async fn main() {
         .route("/api/sessions/{id}/stats", get(api_session_stats))
         // BẢN 2.9 — bảng soát lỗi QA 8 kiểm (thuần đọc, không tự sửa)
         .route("/api/sessions/{id}/qa", get(api_session_qa))
+        // BẢN 2.9 — tìm/thay thế hàng loạt (1 snapshot cho cả lô, Ctrl+Z hoàn tác)
+        .route("/api/sessions/{id}/replace", post(api_session_replace))
         .route("/api/sessions/{id}/rows/{index}", patch(api_row_status))
         .route("/api/sessions/{id}/rows/{index}/merge", post(api_row_merge))
         .route(

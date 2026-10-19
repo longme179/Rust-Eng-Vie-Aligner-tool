@@ -423,6 +423,27 @@
   .qa-ok .art{font-size:42px}
   .qa-ok .t{font-weight:800; font-size:15px; color:var(--green)}
 
+  /* ---- BẢN 2.9 — tìm / lọc / thay thế ---- */
+  .tb-search{display:flex; align-items:center; gap:6px; border:1px solid var(--border2); border-radius:9px; background:#fff; padding:0 3px 0 11px; flex:0 1 250px; min-width:160px; height:38px}
+  .tb-search:focus-within{border-color:var(--teal-d)}
+  .tb-search input{border:0; outline:none; flex:1; min-width:60px; padding:8px 0; font-size:13px; background:transparent; font-family:inherit; color:inherit}
+  .tb-search input::placeholder{color:var(--faint)}
+  .tb-search .find-count{font-size:11.5px; color:var(--muted); white-space:nowrap; font-family:var(--mono)}
+  .tb-search .btn-clear{border:0; background:none; cursor:pointer; color:var(--muted); font-size:13px; padding:6px 8px; border-radius:7px; line-height:1}
+  .tb-search .btn-clear:hover{background:var(--surface2); color:var(--rose)}
+  .blk.hit{background:var(--amber-bg); border-color:var(--amber)}
+  .rep-grid{display:grid; grid-template-columns:118px 1fr; gap:11px 12px; align-items:center}
+  @media (max-width:560px){ .rep-grid{grid-template-columns:1fr} .rep-grid label{margin-bottom:-4px} }
+  .rep-grid label{font-size:13px; color:var(--muted); font-weight:700}
+  .rep-grid input[type=text], .rep-grid select{border:1px solid var(--border2); border-radius:9px; padding:9px 11px; font-size:13.5px; font-family:inherit; width:100%; background:#fff; color:inherit}
+  .rep-grid input[type=text]:focus, .rep-grid select:focus{outline:none; border-color:var(--teal-d)}
+  .rep-case{display:flex; align-items:center; gap:8px; font-size:13px; font-weight:500!important; cursor:pointer}
+  .rep-case input{width:15px; height:15px; accent-color:var(--teal-d)}
+  .rep-preview{margin-top:12px; border:1px dashed var(--border2); border-radius:9px; padding:9px 12px; font-size:13px; background:var(--surface2); line-height:1.55}
+  .rep-preview b{font-family:var(--mono)}
+  .rep-preview .zero{color:var(--muted)}
+  .rep-note{font-size:12px; color:var(--muted); margin:10px 0 0; line-height:1.55}
+
   /* ============ Toasts ============ */
   .toasts{position:fixed; top:66px; right:18px; z-index:90; display:flex; flex-direction:column; gap:9px; max-width:min(400px,92vw)}
   .toast{
@@ -549,6 +570,12 @@
       <button class="btn" id="btnRescanAll" title="Chấm lại điểm khớp MỌI hàng đủ hai phía (LaBSE nếu đang chạy, kèm sàn từ vựng) — dùng sau khi kéo–thả nhiều khối; Ctrl+Z hoàn tác cả lô">↻ <span class="lbl">Rescan tất cả</span></button>
       <button class="btn" id="btnStats" title="Thống kê số từ / ký tự / đoạn của phiên — căn cứ tính giá theo số từ nguồn (chuẩn ngành); nút 📋 Sao chép cho thư báo giá">📊 <span class="lbl">Số từ</span></button>
       <button class="btn" id="btnQa" title="Soát lỗi 8 phép theo chuẩn ngành (danh mục ApSIC Xbench): sai số liệu, bỏ dịch, độ dài bất thường, khoảng trắng thừa, ngoặc không cân, tên riêng viết hoa, thiếu dấu tiếng Việt, Unicode NFD — thuần đọc, không tự sửa gì">🔍 <span class="lbl">Soát lỗi</span></button>
+      <div class="tb-search" role="search">
+        <input type="search" id="findInput" placeholder="Tìm trong bảng…" aria-label="Tìm trong bảng (lọc tức thì, không phân biệt hoa thường)" autocomplete="off">
+        <span class="find-count" id="findCount" aria-live="polite"></span>
+        <button type="button" class="btn-clear" id="findClear" title="Xoá chuỗi tìm — hiện lại đủ mọi hàng" aria-label="Xoá tìm kiếm">✕</button>
+      </div>
+      <button class="btn" id="btnReplace" title="Thay thế hàng loạt trong MỘT cột (xem trước số chỗ rồi áp dụng 1 lần; Ctrl+Z hoàn tác cả lô)">✏️ <span class="lbl">Thay thế</span></button>
       <label for="fmtSelect" style="font-size:13px;color:var(--muted)">Định dạng:</label>
       <select id="fmtSelect" aria-label="Định dạng xuất">
         <option value="xlsx">Excel (.xlsx) — tô màu theo trạng thái</option>
@@ -658,6 +685,39 @@
   </div>
 </div>
 
+<!-- Modal thay thế hàng loạt (BẢN 2.9) -->
+<div class="modal-veil" id="repModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="repTitle" style="width:min(560px,96vw)">
+    <div class="modal-head">
+      <h3 id="repTitle">✏️ Thay thế hàng loạt</h3>
+      <span style="flex:1"></span>
+      <button class="btn ghost" id="repClose" aria-label="Đóng">✕</button>
+    </div>
+    <div class="modal-body" id="repBody">
+      <div class="rep-grid">
+        <label for="repFind">Tìm chuỗi</label>
+        <input type="text" id="repFind" placeholder="ví dụ: Liên Hợp Quốc" autocomplete="off">
+        <label for="repReplace">Thay bằng</label>
+        <input type="text" id="repReplace" placeholder="để trống = xoá chuỗi tìm khỏi cột" autocomplete="off">
+        <label for="repColumn">Trong cột</label>
+        <select id="repColumn" aria-label="Cột áp dụng thay thế">
+          <option value="vi" selected>Tiếng Việt (bản dịch)</option>
+          <option value="en">Tiếng Anh (bản gốc)</option>
+        </select>
+        <span></span>
+        <label class="rep-case" for="repCase"><input type="checkbox" id="repCase"> Phân biệt hoa thường</label>
+      </div>
+      <div class="rep-preview" id="repPreview">Nhập chuỗi tìm để xem trước số chỗ.</div>
+      <p class="rep-note">Áp dụng cho <b>mọi hàng</b> của cột chọn — một lần bấm là một thao tác: <b>Ctrl+Z hoàn tác cả lô</b>. Chuỗi tìm là đoạn văn bản thường (không phải biểu thức chính quy). Hàng bị sửa mất điểm khớp cũ — bấm <b>↻ Rescan tất cả</b> khi cần chấm lại.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" id="repApply">✏️ Áp dụng</button>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:var(--muted)">Thay trên máy bạn · Ctrl+Z hoàn tác được</span>
+    </div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <div class="busy" id="busy">
@@ -675,6 +735,7 @@ const S = {
   current: null,      // phiên đang xem (đầy đủ)
   sessions: [],       // danh sách nhẹ
   filter: "all",
+  filterText: "",     // BẢN 2.9 — chuỗi tìm trong bảng (đã thường hoá, rỗng = không lọc)
   format: "tsv",
   busy: false,
   labseReady: false,  // LaBSE service có đang chạy không (từ /api/model-status)
@@ -898,8 +959,16 @@ function renderChips(c){
 }
 function filteredRows(){
   if (!S.current) return [];
-  if (S.filter === "all") return S.current.rows;
-  return S.current.rows.filter(r => r.status === S.filter);
+  let rows = S.current.rows;
+  if (S.filter !== "all") rows = rows.filter(r => r.status === S.filter);
+  // BẢN 2.9 — lọc chữ: chỉ giữ hàng có khối chứa chuỗi tìm (không phân biệt hoa thường)
+  if (S.filterText){
+    const q = S.filterText;
+    rows = rows.filter(r =>
+      segsOf("en", r).some(s => s.text.toLowerCase().includes(q)) ||
+      segsOf("vi", r).some(s => s.text.toLowerCase().includes(q)));
+  }
+  return rows;
 }
 const RENDER_CAP_DEFAULT = 400;
 let renderCap = RENDER_CAP_DEFAULT;
@@ -928,7 +997,7 @@ function cellHtml(side, r){
   }
   const tag = segs.length > 1 ? `${LANG} · ${segs.map(s => s.i + 1).join(" + ")}` : `${LANG} · ${segs[0].i + 1}`;
   const blocks = segs.map((s, pos) => `
-    <div class="blk" draggable="true" data-side="${side}" data-row="${r.index}" data-pos="${pos}" tabindex="0" role="button"
+    <div class="blk${S.filterText && s.text.toLowerCase().includes(S.filterText) ? " hit" : ""}" draggable="true" data-side="${side}" data-row="${r.index}" data-pos="${pos}" tabindex="0" role="button"
          aria-label="Khối ${LANG} — đoạn gốc ${s.i + 1}. Kéo sang ô ${LANG} của hàng khác, hoặc bấm để chọn rồi bấm ô đích."
          title="Kéo khối này vào ô ${LANG} của hàng bất kỳ (hoặc bấm để chọn rồi bấm ô đích cùng phía). ⇥ = tách thành hàng riêng">
       <div class="bhead"><span class="btag">${LANG}·${s.i + 1}</span><span style="flex:1"></span><button class="bdetach" data-side="${side}" data-row="${r.index}" data-pos="${pos}" title="Tách khối này thành hàng riêng (ngay sau hàng này)" aria-label="Tách khối ${LANG} đoạn ${s.i + 1} thành hàng riêng">⇥</button></div>
@@ -941,6 +1010,7 @@ function renderRows(){
   const rows = filteredRows();
   if (rows.length === 0){
     list.innerHTML = `<div style="padding:34px;text-align:center;color:var(--muted)">Không có hàng nào ở mục lọc này.</div>`;
+    updateFindCount(0); // [AUDIT #2] vẫn cập nhật huy hiệu — không giữ số cũ khi 0 hàng khớp
     return;
   }
   const shown = rows.slice(0, renderCap);
@@ -990,7 +1060,15 @@ function renderRows(){
   const more = rows.length > renderCap
     ? `<button class="btn showmore" id="btnShowMore">Hiện thêm (còn ${rows.length - renderCap} hàng)</button>` : "";
   list.innerHTML = html + more;
+  updateFindCount(rows.length);
   paintBlkSel();
+}
+
+/* BẢN 2.9 — huy hiệu số hàng đang thấy của ô tìm (n/total khi đang lọc chữ). */
+function updateFindCount(shown){
+  const el = $("findCount");
+  if (!S.current || !S.filterText){ el.textContent = ""; return; }
+  el.textContent = `${shown}/${S.current.rows.length}`;
 }
 
 /* ================= Hành động trên hàng ================= */
@@ -1474,12 +1552,14 @@ function renderQa(r){
     <p class="qa-note">Bấm vào mỗi mục để nhảy tới hàng đó trong bảng. Bảng soát <b>không tự sửa gì</b> — mọi sửa đổi do bạn quyết định (Ctrl+Z được như mọi thao tác).</p>
     <div class="qa-list">${items}</div>`;
 }
-/* Bấm mục QA → nhảy tới hàng: nếu hàng đang bị ẩn (đang lọc chip khác “Tổng” hoặc
-   vượt mức “Hiện thêm”) thì mở hết rồi mới nháy. Đóng modal để nhìn thấy hàng. */
+/* Bấm mục QA → nhảy tới hàng: nếu hàng đang bị ẩn (đang lọc chip khác “Tổng”,
+   đang lọc chữ, hoặc vượt mức “Hiện thêm”) thì mở hết rồi mới nháy. Đóng modal
+   để nhìn thấy hàng. */
 function gotoQaRow(i){
   let el = document.querySelector(`#rowsList .row[data-i="${i}"]`);
   if (!el && S.current){
     if (S.filter !== "all") S.filter = "all";
+    if (S.filterText){ S.filterText = ""; $("findInput").value = ""; }
     renderCap = Math.max(renderCap, i + 50);
     render();
     el = document.querySelector(`#rowsList .row[data-i="${i}"]`);
@@ -1492,10 +1572,108 @@ function gotoQaRow(i){
   flashRow(i);
 }
 
+/* ================= BẢN 2.9 — THAY THẾ HÀNG LOẠT (tìm/lọc/thay thế) ================= */
+/* Ô tìm trên thanh công cụ là LỌC tức thì thuần client-side (không đụng server);
+   thay thế là MỘT lệnh POST cho cả cột — 1 snapshot hoàn tác cả lô (kiến trúc
+   rescan-all). Xem docs/PLAN-QOL-2026-10-19.md §3.3. */
+async function openReplace(){
+  const cur = S.current;
+  if (!cur){
+    toast("Chưa có phiên — bấm “Ghép đoạn” trước rồi mới thay thế được.", "warn", 4600);
+    return;
+  }
+  $("repModal").classList.add("show");
+  updateReplacePreview();
+  $("repFind").focus();
+}
+/* Đếm xem trước (client-side, cùng ngữ nghĩa với server: substring không chồng lấn).
+   Con số CHUẨN là kết quả server trả về — đây chỉ là xem trước cho người dùng. */
+function countReplacePreview(){
+  const cur = S.current;
+  const find = $("repFind").value;
+  // [AUDIT #2] chỉ chặn rỗng THUẦN — chuỗi toàn khoảng trắng vẫn đếm được
+  // (để xem trước việc sửa lỗi "2 dấu cách liền": tìm "  " thay " ")
+  if (!cur || !find) return null;
+  const col = $("repColumn").value;
+  const ci = !$("repCase").checked;
+  const nee = ci ? find.toLowerCase() : find;
+  let changed = 0, blocksHit = 0, rowsHit = 0;
+  for (const r of cur.rows){
+    const segs = segsOf(col, r);
+    let hit = false;
+    for (const s of segs){
+      const t = ci ? s.text.toLowerCase() : s.text;
+      const n = t.split(nee).length - 1;
+      if (n > 0){ changed += n; blocksHit++; hit = true; }
+    }
+    if (hit) rowsHit++;
+  }
+  return { changed, blocks: blocksHit, rows: rowsHit };
+}
+function updateReplacePreview(){
+  const el = $("repPreview");
+  const p = countReplacePreview();
+  const find = $("repFind").value, repl = $("repReplace").value;
+  if (p === null){
+    el.innerHTML = `<span class="zero">Nhập chuỗi tìm để xem trước số chỗ.</span>`;
+    $("repApply").disabled = true;
+    return;
+  }
+  $("repApply").disabled = false;
+  if (find === repl){
+    el.innerHTML = `<span style="color:var(--rose)">Chuỗi tìm và chuỗi thay giống hệt nhau — không có gì để thay.</span>`;
+    $("repApply").disabled = true;
+    return;
+  }
+  const colName = $("repColumn").value === "en" ? "tiếng Anh" : "tiếng Việt";
+  if (p.changed === 0){
+    el.innerHTML = `Không tìm thấy chỗ nào khớp trong cột ${esc(colName)} — bấm Áp dụng cũng không đổi gì.`;
+    return;
+  }
+  el.innerHTML = `Tìm thấy <b>${fmtNum(p.changed)}</b> chỗ trong <b>${fmtNum(p.blocks)}</b> khối của <b>${fmtNum(p.rows)}</b> hàng — cột ${esc(colName)}.`;
+}
+let repSending = false; // [AUDIT #2] chống Enter kép / bấm 2 lần khi đang gửi
+async function applyReplace(){
+  const cur = S.current;
+  if (!cur || $("repApply").disabled || repSending) return;
+  repSending = true;
+  const body = {
+    find: $("repFind").value,
+    replace: $("repReplace").value,
+    column: $("repColumn").value,
+    caseSensitive: $("repCase").checked,
+  };
+  try {
+    const data = await api(`/api/sessions/${encodeURIComponent(cur.id)}/replace`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    S.current.rows = data.rows;
+    S.current.counts = data.counts;
+    S.current.updatedAt = data.updatedAt;
+    S.current.canUndo = data.canUndo;
+    S.current.canRedo = data.canRedo;
+    render();
+    $("repModal").classList.remove("show");
+    if (data.changed > 0){
+      const colName = data.column === "en" ? "tiếng Anh" : "tiếng Việt";
+      toast(`Đã thay ${fmtNum(data.changed)} chỗ trong ${fmtNum(data.blocks)} khối (cột ${colName}) — Ctrl+Z hoàn tác cả lô.`, "ok", 6200);
+    } else {
+      toast("Không có chỗ nào khớp — phiên không đổi gì.", "warn", 5000);
+    }
+  } catch (e){
+    toast("Không thay được: " + e.message, "err", 7000);
+  } finally {
+    repSending = false;
+  }
+}
+
 /* ================= Phiên ================= */
 function newSession(keepText){
   S.current = null;
   S.filter = "all";
+  S.filterText = ""; // [AUDIT #2] không mang lọc chữ sang phiên mới
+  $("findInput").value = "";
   S.selBlk = null;
   render();
   if (!keepText){ /* giữ nguyên văn bản để chỉnh sửa rồi ghép lại */ }
@@ -1516,6 +1694,8 @@ async function openSession(id){
     const data = await api(`/api/sessions/${encodeURIComponent(id)}`);
     S.current = data;
     S.filter = "all";
+    S.filterText = ""; // [AUDIT #2] không mang lọc chữ của phiên cũ sang phiên vừa mở
+    $("findInput").value = "";
     S.selBlk = null;
     $("enText").value = (data.english || []).join("\n\n");
     $("viText").value = (data.vietnamese || []).join("\n\n");
@@ -1769,6 +1949,28 @@ document.addEventListener("DOMContentLoaded", () => {
     if (it) gotoQaRow(parseInt(it.dataset.goto, 10));
   });
 
+  // ---- BẢN 2.9: tìm / lọc / thay thế hàng loạt ----
+  $("findInput").addEventListener("input", () => {
+    S.filterText = $("findInput").value.trim().toLowerCase();
+    renderRows();
+  });
+  $("findClear").addEventListener("click", () => {
+    $("findInput").value = "";
+    S.filterText = "";
+    renderRows();
+    $("findInput").focus();
+  });
+  $("btnReplace").addEventListener("click", openReplace);
+  $("repClose").addEventListener("click", () => $("repModal").classList.remove("show"));
+  $("repModal").addEventListener("click", (ev) => { if (ev.target === $("repModal")) $("repModal").classList.remove("show"); });
+  ["repFind", "repReplace"].forEach(id => {
+    $(id).addEventListener("input", updateReplacePreview);
+    $(id).addEventListener("keydown", (e) => { if (e.key === "Enter"){ e.preventDefault(); applyReplace(); } });
+  });
+  $("repColumn").addEventListener("change", updateReplacePreview);
+  $("repCase").addEventListener("change", updateReplacePreview);
+  $("repApply").addEventListener("click", applyReplace);
+
   $("enText").addEventListener("input", refreshCounts);
   // BẢN 2.8 — kéo–thả file .txt vào thẻ ô nhập (đọc cục bộ, không upload)
   wireFileDrop("enText", ".card.lang.en", "ô tiếng Anh");
@@ -1808,6 +2010,7 @@ document.addEventListener("DOMContentLoaded", () => {
       $("stModal").classList.remove("show");
       $("statsModal").classList.remove("show");
       $("qaModal").classList.remove("show");
+      $("repModal").classList.remove("show");
     }
   });
 

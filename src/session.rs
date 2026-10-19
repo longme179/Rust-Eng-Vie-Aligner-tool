@@ -87,6 +87,100 @@ impl Side {
     }
 }
 
+// ========================= BẢN 2.9 — TÌM / THAY THẾ (F3) =========================
+
+/// Kết quả thay thế hàng loạt — `changed` = số LẦN thay (mỗi chỗ khớp là 1 lần),
+/// `blocks` = số khối bị sửa, `rows` = số hàng bị đụng.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceOutcome {
+    pub changed: usize,
+    pub blocks: usize,
+    pub rows: usize,
+}
+
+/// Tìm mọi chỗ khớp `find` trong `text`, trả các vùng KÝ TỰ (a..b, a gồm — b không)
+/// theo `Vec<char>` của `text`. Không chồng lấn (như `str::replace`).
+/// KHÔNG phân biệt hoa thường: so trên dòng chữ-thường của từng ký tự, kèm bản đồ
+/// vị-trí-chữ-thường → vị-trí-ký-tự-gốc (một ký tự viết thường có thể RA NHIỀU chữ,
+/// ví dụ 'İ' → "i̇" — khi đó nguyên ký tự gốc được tính là một chỗ, ghi nhận trong docs).
+pub fn find_match_ranges(text: &str, find: &str, case_sensitive: bool) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    if find.is_empty() {
+        return out;
+    }
+    let hay: Vec<char> = text.chars().collect();
+    if case_sensitive {
+        let nee: Vec<char> = find.chars().collect();
+        let m = nee.len();
+        if m > hay.len() {
+            return out;
+        }
+        let mut i = 0usize;
+        while i + m <= hay.len() {
+            if hay[i..i + m] == nee[..] {
+                out.push((i, i + m));
+                i += m; // không chồng lấn
+            } else {
+                i += 1;
+            }
+        }
+    } else {
+        // dòng chữ thường + bản đồ về ký tự gốc (không giảm thứ tự)
+        let mut low: Vec<char> = Vec::with_capacity(hay.len());
+        let mut map: Vec<usize> = Vec::with_capacity(hay.len());
+        for (i, &c) in hay.iter().enumerate() {
+            for lc in c.to_lowercase() {
+                low.push(lc);
+                map.push(i);
+            }
+        }
+        let nee: Vec<char> = find.chars().flat_map(|c| c.to_lowercase()).collect();
+        let m = nee.len();
+        if m == 0 || m > low.len() {
+            return out;
+        }
+        let mut k = 0usize;
+        while k + m <= low.len() {
+            if low[k..k + m] == nee[..] {
+                let start = map[k];
+                let end_incl = map[k + m - 1];
+                out.push((start, end_incl + 1));
+                // nhảy qua vùng gốc đã khớp: lowered-index đầu tiên thuộc ký tự gốc SAU end_incl
+                k = map.partition_point(|&o| o <= end_incl);
+            } else {
+                k += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Thay `find` → `replace` trong `text` (không phân biệt hoa thường tuỳ chọn).
+/// Trả (chuỗi mới, số lần thay). 0 lần → trả lại y nguyên chuỗi cũ (không tốn bản sao).
+fn replace_in_text(text: &str, find: &str, replace: &str, case_sensitive: bool) -> (String, usize) {
+    let ranges = find_match_ranges(text, find, case_sensitive);
+    if ranges.is_empty() {
+        return (text.to_string(), 0);
+    }
+    let hay: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len() + replace.len() * ranges.len());
+    let mut pos = 0usize;
+    let mut n = 0usize;
+    for (a, b) in ranges {
+        for c in &hay[pos..a] {
+            out.push(*c);
+        }
+        out.push_str(replace);
+        pos = b;
+        n += 1;
+    }
+    for c in &hay[pos..] {
+        out.push(*c);
+    }
+    (out, n)
+}
+
 // ========================= Session =========================
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -180,6 +274,27 @@ impl Session {
         self.redo_stack.clear();
     }
 
+    /// Đồng bộ lại TÀI LIỆU GỐC (english/vietnamese) từ các khối hiện có của phiên.
+    /// Bất biến I1/I2 bảo đảm mỗi đoạn xuất hiện đúng 1 lần trong đúng 1 khối — nên
+    /// tài liệu dựng lại được NGUYÊN VẸN từ hàng. Với mọi thao tác cũ (kéo/gộp/đánh
+    /// dấu/rescan — không đổi CHỮ) đây là no-op; chỉ có THAY THẾ hàng loạt (bản 2.9)
+    /// đổi chữ khối, và snapshot hoàn tác chỉ chứa HÀNG — nên sau undo/redo phải tái
+    /// tạo tài liệu từ hàng để hai nơi luôn khớp nhau (xuất file kiểm bất biến OK).
+    fn sync_docs_from_rows(&mut self) {
+        for r in &self.rows {
+            for (i, t) in r.en_segments() {
+                if let Some(slot) = self.english.get_mut(i) {
+                    *slot = t.to_string();
+                }
+            }
+            for (i, t) in r.vi_segments() {
+                if let Some(slot) = self.vietnamese.get_mut(i) {
+                    *slot = t.to_string();
+                }
+            }
+        }
+    }
+
     /// HOÀN TÁC bước gần nhất (snapshot khôi phục nguyên xi trạng thái hàng).
     pub fn undo(&mut self) -> Result<(), String> {
         match self.undo_stack.pop() {
@@ -189,6 +304,7 @@ impl Session {
                     .push(std::mem::replace(&mut self.rows, prev));
                 self.reindex();
                 self.reordered = !self.is_monotonic();
+                self.sync_docs_from_rows(); // bản 2.9 — tài liệu gốc theo hàng sau thay thế
                 self.updated_at = now_ms();
                 Ok(())
             }
@@ -204,6 +320,7 @@ impl Session {
                     .push(std::mem::replace(&mut self.rows, next));
                 self.reindex();
                 self.reordered = !self.is_monotonic();
+                self.sync_docs_from_rows(); // bản 2.9 — tài liệu gốc theo hàng sau thay thế
                 self.updated_at = now_ms();
                 Ok(())
             }
@@ -504,6 +621,112 @@ impl Session {
         }
         self.updated_at = now_ms();
         Ok((scanned, labse_used_any))
+    }
+
+    // ========================= BẢN 2.9 — TÌM / LỌC / THAY THẾ HÀNG LOẠT =========================
+
+    /// Thay thế hàng loạt chuỗi `find` bằng `replace` trong MỌI khối của phía `side`.
+    /// Kiến trúc đúng rescan-all: **MỘT snapshot hoàn tác cho cả lô** (Ctrl+Z một nhấn
+    /// trả nguyên xi); 0 chỗ khớp → không snapshot, không đổi gì. Tài liệu gốc
+    /// (english/vietnamese) được đồng bộ lại từ hàng — xuất file kiểm bất biến vẫn OK.
+    /// Điểm của hàng bị thay trở thành `None` (chữ đã đổi — mời bấm Rescan khi cần).
+    pub fn replace_all(
+        &mut self,
+        side: Side,
+        find: &str,
+        replace: &str,
+        case_sensitive: bool,
+    ) -> Result<ReplaceOutcome, String> {
+        if find.is_empty() {
+            return Err("Chuỗi tìm không được để trống.".into());
+        }
+        // [AUDIT #2] chuỗi CHỈ toàn khoảng trắng ĐƯỢC cho phép — để sửa chính lỗi
+        // "2 dấu cách liền" mà kiểm QA số 4 báo (thay "  " → " "). Chỉ chặn rỗng thuần.
+        if find == replace {
+            return Err("Chuỗi tìm và chuỗi thay giống hệt nhau — không có gì để thay.".into());
+        }
+        // ---- ĐẾM TRƯỚC: 0 chỗ khớp → trả ngay, KHÔNG snapshot, KHÔNG đổi gì ----
+        // Pha đếm dùng ĐÚNG cùng tiêu chí khối như pha áp (khối chính + khối gộp) —
+        // không qua en_segments() (đòi index cùng Some) để hai pha không lệch nhau. [AUDIT #2]
+        let mut changed = 0usize;
+        let mut blocks_hit = 0usize;
+        let mut rows_hit = 0usize;
+        for r in &self.rows {
+            let mut texts: Vec<&str> = Vec::with_capacity(2);
+            match side {
+                Side::En => {
+                    if let Some(t) = r.en.as_deref() {
+                        texts.push(t);
+                    }
+                    for e in &r.en_extra {
+                        texts.push(e.text.as_str());
+                    }
+                }
+                Side::Vi => {
+                    if let Some(t) = r.vi.as_deref() {
+                        texts.push(t);
+                    }
+                    for e in &r.vi_extra {
+                        texts.push(e.text.as_str());
+                    }
+                }
+            }
+            let mut row_hit = false;
+            for t in texts {
+                let n = find_match_ranges(t, find, case_sensitive).len();
+                if n > 0 {
+                    changed += n;
+                    blocks_hit += 1;
+                    row_hit = true;
+                }
+            }
+            if row_hit {
+                rows_hit += 1;
+            }
+        }
+        if changed == 0 {
+            return Ok(ReplaceOutcome {
+                changed: 0,
+                blocks: 0,
+                rows: 0,
+            });
+        }
+        // ---- MỘT snapshot cho cả lô, rồi thay trong từng khối của phía chọn ----
+        self.push_history();
+        for r in self.rows.iter_mut() {
+            let main = match side {
+                Side::En => r.en.as_ref(),
+                Side::Vi => r.vi.as_ref(),
+            };
+            if let Some(t) = main {
+                let (new_text, n) = replace_in_text(t, find, replace, case_sensitive);
+                if n > 0 {
+                    match side {
+                        Side::En => r.en = Some(new_text),
+                        Side::Vi => r.vi = Some(new_text),
+                    }
+                    r.score = None; // chữ đã đổi — điểm cũ không còn nghĩa
+                }
+            }
+            let extras = match side {
+                Side::En => &mut r.en_extra,
+                Side::Vi => &mut r.vi_extra,
+            };
+            for e in extras.iter_mut() {
+                let (new_text, n) = replace_in_text(&e.text, find, replace, case_sensitive);
+                if n > 0 {
+                    e.text = new_text;
+                    r.score = None;
+                }
+            }
+        }
+        self.sync_docs_from_rows(); // tài liệu gốc theo khối mới (undo tái tạo lại)
+        self.updated_at = now_ms();
+        Ok(ReplaceOutcome {
+            changed,
+            blocks: blocks_hit,
+            rows: rows_hit,
+        })
     }
 
     // ========================= Trạng thái / gộp hàng =========================

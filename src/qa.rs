@@ -21,9 +21,11 @@
 //! trạng thái, không mạng, KHÔNG đụng embedder → kết quả xác định trên mọi máy
 //! (LaBSE chạy hay không không đổi kết quả QA — hermetic tự nhiên).
 //!
-//! Quy ước biên: hàng MỘT phía (unmatched) — kiểm 1, 5, 6, 8 chạy trên phía có mặt
-//! (số "bên kia thiếu" sẽ liệt kê đủ — đúng nghĩa soát); kiểm 4 cũng chạy trên phía
-//! có mặt; kiểm 2, 3 cần đủ hai phía nên bỏ qua. Phiên rỗng → 0 vấn đề.
+//! Quy ước biên: hàng MỘT phía (unmatched) — kiểm 4, 5, 6, 8 chạy trên phía có mặt
+//! (mức soát đúng nghĩa); kiểm 1, 2, 3 cần đủ hai phía nên bỏ qua. [AUDIT #2 2026-10-19]
+//! Kiểm 1 (số liệu) cũng bỏ trên hàng một phía: tách cặp xong thì mọi số phía có mặt
+//! thành “thiếu/thừa” oan — nhiễu nhiều hơn giá trị (số bên kia thiếu là đương nhiên
+//! đã thấy ở chữ “none”). Phiên rỗng → 0 vấn đề.
 
 use crate::session::Session;
 use serde::Serialize;
@@ -229,12 +231,13 @@ fn multiset(items: &[String]) -> HashMap<String, usize> {
 
 /// Phía Anh có tên tháng tiếng Anh (so TỪ NGUYÊN VẸN, không phân biệt hoa thường).
 fn has_english_month(en: &str) -> bool {
+    // "may" NHẬP NHẰNG với động từ ("you may go") nên CHỈ tính khi viết hoa chữ
+    // đầu: "May"/"MAY" là tháng, "may" là động từ. [AUDIT #2 2026-10-19]
     const MONTHS: &[&str] = &[
         "january",
         "february",
         "march",
         "april",
-        "may",
         "june",
         "july",
         "august",
@@ -243,10 +246,17 @@ fn has_english_month(en: &str) -> bool {
         "november",
         "december",
     ];
-    let low = en.to_lowercase();
-    low.split_whitespace()
-        .map(word_trim)
-        .any(|w| MONTHS.contains(&w))
+    for w in en.split_whitespace() {
+        let t = word_trim(w);
+        let low = t.to_lowercase();
+        if MONTHS.contains(&low.as_str()) {
+            return true;
+        }
+        if low == "may" && t.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Các token số đứng ngay sau chữ "tháng" (dạng đã chuẩn hoá như phía VI):
@@ -255,18 +265,18 @@ fn month_digits_after_thang(vi: &str) -> Vec<String> {
     let words: Vec<&str> = vi.split_whitespace().collect();
     let mut out = Vec::new();
     for i in 0..words.len().saturating_sub(1) {
-        if words[i]
-            .to_lowercase()
-            .trim_end_matches(['.', ',', ';', ':', '!'])
-            == "tháng"
-        {
+        // gọt dấu câu dính HAI đầu — "(tháng" vẫn tính là "tháng" [AUDIT #2]
+        if word_trim(words[i]).to_lowercase() == "tháng" {
             // lấy dãy chữ số ĐẦU của từ kế tiếp (gọt dấu câu dính theo: "3,", "10.")
             let digits: String = words[i + 1]
                 .chars()
                 .take_while(|c| c.is_ascii_digit())
                 .collect();
-            if !digits.is_empty() {
-                out.push(digits);
+            // CHỈ tha số 1..=12 — tên tháng phải vậy; "tháng 2025" không phải tên tháng
+            if let Ok(n) = digits.parse::<usize>() {
+                if (1..=12).contains(&n) {
+                    out.push(digits);
+                }
             }
         }
     }
@@ -470,14 +480,11 @@ pub fn report(s: &Session) -> QaReport {
             });
         };
 
-        // ---- kiểm chạy được trên phía có mặt (1, 4, 5, 6, 8 + 7 phía VI) ----
+        // ---- kiểm chạy được trên phía có mặt (4, 5, 6 + 7, 8 phía VI) ----
+        // [AUDIT #2] kiểm 1 (số liệu) dời xuống nhóm đủ-hai-phía: trên hàng một phía,
+        // mọi số phía có mặt thành “thiếu/thừa” oan — nhiễu hơn giá trị (chữ “none”
+        // đã tự nói bên kia thiếu).
         if has_en || has_vi {
-            if let Some(d) = numeric_mismatch_detail(
-                if has_en { &en } else { "" },
-                if has_vi { &vi } else { "" },
-            ) {
-                push(Severity::Error, "numeric-mismatch", d);
-            }
             if let Some(d) =
                 whitespace_detail(if has_en { &en } else { "" }, if has_vi { &vi } else { "" })
             {
@@ -504,8 +511,11 @@ pub fn report(s: &Session) -> QaReport {
             }
         }
 
-        // ---- kiểm cần ĐỦ hai phía (2, 3) ----
+        // ---- kiểm cần ĐỦ hai phía (1, 2, 3) ----
         if has_en && has_vi {
+            if let Some(d) = numeric_mismatch_detail(&en, &vi) {
+                push(Severity::Error, "numeric-mismatch", d);
+            }
             if !en.trim().is_empty() && en.trim() == vi.trim() {
                 push(
                     Severity::Error,
