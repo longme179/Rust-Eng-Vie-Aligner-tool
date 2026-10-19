@@ -153,7 +153,7 @@ REVA cũng chạy tốt trên điện thoại/máy tính bảng nếu mở `http
 
 ### Muốn kiểm tra máy mình cài đúng chưa?
 
-Bấm nút **🧪 Tự kiểm tra** trên góc phải — nếu mọi bài đều ✓ (41/41) là REVA chạy hoàn hảo trên máy bạn:
+Bấm nút **🧪 Tự kiểm tra** trên góc phải — nếu mọi bài đều ✓ (45/45) là REVA chạy hoàn hảo trên máy bạn:
 
 ![REVA — tự kiểm tra 35/35](docs/images/reva-selftest.png)
 
@@ -218,7 +218,8 @@ LaBSE là model hiểu nghĩa câu của Google chạy ngay trên máy bạn. B�
 - **Kéo–thả file .txt**: thả file vào ô tiếng Anh/tiếng Việt là nạp ngay (đọc cục bộ, không upload); thả 2 file cùng lúc vào ô nào cũng được (file 1 → ô đó, file 2 → ô còn lại).
 - **Chạy kín trên máy bạn**: mặc định chỉ mở trên `127.0.0.1` (máy khác trong mạng KHÔNG truy cập được); muốn chia sẻ LAN thì đặt biến `REVA_BIND=0.0.0.0`.
 - **Phiên làm việc độc lập**: ghép bao nhiêu bài liên tiếp không lẫn dữ liệu; tự lưu vào `data/sessions/`, mở lại được.
-- **41 bài tự kiểm** nội bộ (hồi quy lỗi từng gặp + tích hợp LaBSE + Excel màu + 4 bài audit bảo mật + TMX + rescan toàn bộ) — bấm 🧪 Tự kiểm tra bất cứ lúc nào.
+- **📊 Thống kê số từ** (bản 2.9): nút `📊 Số từ` đếm ngay số từ / ký tự / đoạn mỗi phía — **căn cứ tính giá theo số từ nguồn** (chuẩn ngành dịch thuật); kèm bảng theo trạng thái, phân vùng đã ghép/chưa có bản dịch, nút **📋 Sao chép** chuỗi tiếng Việt sẵn để dán vào thư báo giá. Số từ còn hiện trực tiếp trên đầu ô nhập ngay khi dán bài, trước khi ghép. Quy ước công khai: từ = chuỗi không khoảng trắng Unicode; ký tự = ký tự Unicode sau chuẩn hoá NFC (dán từ macOS hay Windows đều ra cùng con số).
+- **45 bài tự kiểm** nội bộ (hồi quy lỗi từng gặp + tích hợp LaBSE + Excel màu + 4 bài audit bảo mật + TMX + rescan toàn bộ + 4 bài thống kê số từ) — bấm 🧪 Tự kiểm tra bất cứ lúc nào.
 
 Chi tiết thuật toán, API HTTP, cấu trúc mã nguồn, bất biến kiểm chứng và lịch sử các bản: xem **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.
 
@@ -230,7 +231,7 @@ REVA là một binary Rust duy nhất (axum + tokio) nhúng sẵn giao diện, k
 
 ```bash
 cargo run --release        # build + chạy tại http://localhost:3000
-cargo test                 # test biên dịch — 41 bài selftest đầy đủ chạy qua GET /api/selftest
+cargo test                 # test biên dịch — 45 bài selftest đầy đủ chạy qua GET /api/selftest
 ```
 
 Đổi cổng: `PORT=1709 cargo run --release`. Đổi thư mục dữ liệu: `REVA_DATA_DIR=...`. Xem đầy đủ API + tài liệu kỹ thuật tại **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.

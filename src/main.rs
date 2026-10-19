@@ -20,6 +20,7 @@ mod fold;
 mod lexicon;
 mod selftest;
 mod session;
+mod stats;
 
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, StatusCode};
@@ -256,6 +257,24 @@ async fn api_session_delete(State(state): State<SharedState>, Path(id): Path<Str
     } else {
         err_json(StatusCode::NOT_FOUND, "Không tìm thấy phiên để nhả.")
     }
+}
+
+/// BẢN 2.9 — THỐNG KÊ SỐ TỪ / KÝ TỰ / ĐOẠN của một phiên (thuần đọc — không đụng
+/// hàng, không snapshot hoàn tác). Căn cứ tính giá dịch thuật theo số từ nguồn
+/// (chuẩn ngành — xem docs/PLAN-QOL-2026-10-19.md §1.2). Quy ước đếm: từ = tách
+/// theo khoảng trắng Unicode; ký tự = scalar value sau NFC (NFD/NFC cùng con số).
+async fn api_session_stats(State(state): State<SharedState>, Path(id): Path<String>) -> Response {
+    let s = match state.store.get(&id) {
+        Some(s) => s,
+        None => {
+            return err_json(
+                StatusCode::NOT_FOUND,
+                "Không tìm thấy phiên để thống kê (có thể đã bị nhả/xoá).",
+            )
+        }
+    };
+    let rep = stats::report(&s);
+    ok_json(serde_json::to_value(&rep).unwrap_or(serde_json::Value::Null))
 }
 
 async fn api_sessions_delete_all(State(state): State<SharedState>) -> Response {
@@ -777,7 +796,7 @@ struct DebugQuery {
 }
 
 async fn api_not_found(Query(_q): Query<DebugQuery>) -> Response {
-    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health, /api/sessions/{id}/rows/{index} (PATCH đổi trạng thái), /api/sessions/{id}/rows/{index}/merge (POST gộp hàng), /api/sessions/{id}/rows/{index}/rescan (POST chấm lại điểm), /api/sessions/{id}/rescan-all (POST chấm lại toàn bộ), /api/sessions/{id}/blocks/move (POST di chuyển khối), /api/sessions/{id}/undo và /api/sessions/{id}/redo (POST hoàn tác / làm lại).")
+    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health, /api/sessions/{id} (GET thông tin phiên · GET /stats thống kê số từ · DELETE nhả), /api/sessions/{id}/rows/{index} (PATCH đổi trạng thái), /api/sessions/{id}/rows/{index}/merge (POST gộp hàng), /api/sessions/{id}/rows/{index}/rescan (POST chấm lại điểm), /api/sessions/{id}/rescan-all (POST chấm lại toàn bộ), /api/sessions/{id}/blocks/move (POST di chuyển khối), /api/sessions/{id}/undo và /api/sessions/{id}/redo (POST hoàn tác / làm lại).")
 }
 
 // ========================= Main =========================
@@ -901,6 +920,8 @@ async fn main() {
             "/api/sessions/{id}",
             get(api_session_get).delete(api_session_delete),
         )
+        // BẢN 2.9 — thống kê số từ (căn cứ tính giá, thuần đọc)
+        .route("/api/sessions/{id}/stats", get(api_session_stats))
         .route("/api/sessions/{id}/rows/{index}", patch(api_row_status))
         .route("/api/sessions/{id}/rows/{index}/merge", post(api_row_merge))
         .route(
