@@ -18,6 +18,7 @@ mod exporter;
 mod fetcher;
 mod fold;
 mod lexicon;
+mod qa;
 mod selftest;
 mod session;
 mod stats;
@@ -274,6 +275,25 @@ async fn api_session_stats(State(state): State<SharedState>, Path(id): Path<Stri
         }
     };
     let rep = stats::report(&s);
+    ok_json(serde_json::to_value(&rep).unwrap_or(serde_json::Value::Null))
+}
+
+/// BẢN 2.9 — BẢNG SOÁT LỖI QA (8 kiểm theo chuẩn ngành — Xbench): sai số liệu,
+/// bỏ dịch (VI==EN), tỉ lệ độ dài bất thường, khoảng trắng thừa, ngoặc không cân,
+/// tên riêng viết hoa mất, thiếu dấu tiếng Việt, NFD lẫn. Thuần đọc — KHÔNG tự
+/// sửa gì; trả về danh sách {row, severity, check, en, vi, detail} để giao diện
+/// cuộn tới từng hàng. Xem docs/PLAN-QOL-2026-10-19.md §3.2.
+async fn api_session_qa(State(state): State<SharedState>, Path(id): Path<String>) -> Response {
+    let s = match state.store.get(&id) {
+        Some(s) => s,
+        None => {
+            return err_json(
+                StatusCode::NOT_FOUND,
+                "Không tìm thấy phiên để soát lỗi (có thể đã bị nhả/xoá).",
+            )
+        }
+    };
+    let rep = qa::report(&s);
     ok_json(serde_json::to_value(&rep).unwrap_or(serde_json::Value::Null))
 }
 
@@ -796,7 +816,7 @@ struct DebugQuery {
 }
 
 async fn api_not_found(Query(_q): Query<DebugQuery>) -> Response {
-    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health, /api/sessions/{id} (GET thông tin phiên · GET /stats thống kê số từ · DELETE nhả), /api/sessions/{id}/rows/{index} (PATCH đổi trạng thái), /api/sessions/{id}/rows/{index}/merge (POST gộp hàng), /api/sessions/{id}/rows/{index}/rescan (POST chấm lại điểm), /api/sessions/{id}/rescan-all (POST chấm lại toàn bộ), /api/sessions/{id}/blocks/move (POST di chuyển khối), /api/sessions/{id}/undo và /api/sessions/{id}/redo (POST hoàn tác / làm lại).")
+    err_json(StatusCode::NOT_FOUND, "Không có API này. Các API: /api/align, /api/sessions, /api/export, /api/fetch-url, /api/selftest, /api/model-status, /api/health, /api/sessions/{id} (GET thông tin phiên · GET /stats thống kê số từ · GET /qa soát lỗi QA · DELETE nhả), /api/sessions/{id}/rows/{index} (PATCH đổi trạng thái), /api/sessions/{id}/rows/{index}/merge (POST gộp hàng), /api/sessions/{id}/rows/{index}/rescan (POST chấm lại điểm), /api/sessions/{id}/rescan-all (POST chấm lại toàn bộ), /api/sessions/{id}/blocks/move (POST di chuyển khối), /api/sessions/{id}/undo và /api/sessions/{id}/redo (POST hoàn tác / làm lại).")
 }
 
 // ========================= Main =========================
@@ -922,6 +942,8 @@ async fn main() {
         )
         // BẢN 2.9 — thống kê số từ (căn cứ tính giá, thuần đọc)
         .route("/api/sessions/{id}/stats", get(api_session_stats))
+        // BẢN 2.9 — bảng soát lỗi QA 8 kiểm (thuần đọc, không tự sửa)
+        .route("/api/sessions/{id}/qa", get(api_session_qa))
         .route("/api/sessions/{id}/rows/{index}", patch(api_row_status))
         .route("/api/sessions/{id}/rows/{index}/merge", post(api_row_merge))
         .route(
