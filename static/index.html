@@ -372,7 +372,24 @@
   .st-item .nm{font-weight:600}
   .st-item .dt{color:var(--rose); font-size:12px; margin-top:3px; overflow-wrap:anywhere}
   .st-item .ms{margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--faint); flex:none}
-  .modal-foot{padding:12px 18px; border-top:1px solid var(--border); display:flex; gap:9px}
+  .modal-foot{padding:12px 18px; border-top:1px solid var(--border); display:flex; gap:9px; flex-wrap:wrap; align-items:center}
+
+  /* ============ BẢN 2.9: thống kê số từ ============ */
+  .stats-sides{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:2px 0 12px}
+  @media (max-width:560px){ .stats-sides{grid-template-columns:1fr} }
+  .stats-side{border:1px solid var(--border); border-radius:12px; padding:11px 13px; background:var(--surface2)}
+  .stats-side.vi{background:var(--amber-bg)}
+  .stats-side .ss-name{font-weight:700; font-size:13px; margin-bottom:7px; display:flex; gap:7px; align-items:center}
+  .stats-side .ss-num{font-family:var(--mono); font-size:21px; font-weight:800; color:var(--teal-d); line-height:1.15}
+  .stats-side.vi .ss-num{color:var(--amber)}
+  .stats-side .ss-sub{font-size:12px; color:var(--muted); margin-top:2px}
+  .stats-tbl{width:100%; border-collapse:collapse; font-size:13px; margin:4px 0 10px}
+  .stats-tbl th, .stats-tbl td{text-align:left; padding:6px 9px; border-bottom:1px solid var(--border)}
+  .stats-tbl th{font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; font-weight:700}
+  .stats-tbl td.n{font-family:var(--mono); font-weight:700; white-space:nowrap}
+  .stats-tbl tr:last-child th, .stats-tbl tr:last-child td{border-bottom:none}
+  .stats-note{font-size:12px; color:var(--muted); background:var(--surface2); border:1px dashed var(--border2); border-radius:9px; padding:8px 11px; line-height:1.5}
+  .stats-note b{color:var(--text)}
 
   /* ============ Toasts ============ */
   .toasts{position:fixed; top:66px; right:18px; z-index:90; display:flex; flex-direction:column; gap:9px; max-width:min(400px,92vw)}
@@ -498,6 +515,7 @@
       <button class="btn" id="btnUndo" disabled title="Hoàn tác thao tác gần nhất (kéo khối / gộp / đánh dấu / rescan) — Ctrl+Z">↩ <span class="lbl">Hoàn tác</span></button>
       <button class="btn" id="btnRedo" disabled title="Làm lại thao tác vừa hoàn tác — Ctrl+Shift+Z">↪ <span class="lbl">Làm lại</span></button>
       <button class="btn" id="btnRescanAll" title="Chấm lại điểm khớp MỌI hàng đủ hai phía (LaBSE nếu đang chạy, kèm sàn từ vựng) — dùng sau khi kéo–thả nhiều khối; Ctrl+Z hoàn tác cả lô">↻ <span class="lbl">Rescan tất cả</span></button>
+      <button class="btn" id="btnStats" title="Thống kê số từ / ký tự / đoạn của phiên — căn cứ tính giá theo số từ nguồn (chuẩn ngành); nút 📋 Sao chép cho thư báo giá">📊 <span class="lbl">Số từ</span></button>
       <label for="fmtSelect" style="font-size:13px;color:var(--muted)">Định dạng:</label>
       <select id="fmtSelect" aria-label="Định dạng xuất">
         <option value="xlsx">Excel (.xlsx) — tô màu theo trạng thái</option>
@@ -572,6 +590,24 @@
   </div>
 </div>
 
+<!-- Modal thống kê số từ (BẢN 2.9) -->
+<div class="modal-veil" id="statsModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="statsTitle">
+    <div class="modal-head">
+      <h3 id="statsTitle">📊 Thống kê số từ</h3>
+      <span style="flex:1"></span>
+      <button class="btn ghost" id="statsClose" aria-label="Đóng">✕</button>
+    </div>
+    <div class="modal-body" id="statsBody"><p style="color:var(--muted)">Đang đếm…</p></div>
+    <div class="modal-foot">
+      <button class="btn primary" id="statsCopy" title="Sao chép chuỗi tiếng Việt sẵn để dán vào thư báo giá / email khách">📋 Sao chép (cho thư báo giá)</button>
+      <button class="btn" id="statsRerun">↻ Đếm lại</button>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:var(--muted)">Đếm cục bộ 100% · thuần đọc</span>
+    </div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <div class="busy" id="busy">
@@ -612,6 +648,18 @@ function esc(s){
 function fmtTime(ms){
   try { return new Date(ms).toLocaleString("vi-VN", { hour:"2-digit", minute:"2-digit", day:"2-digit", month:"2-digit", year:"numeric" }); }
   catch { return new Date(ms).toLocaleString(); }
+}
+/* BẢN 2.9 — định dạng số kiểu Việt Nam (1.234) cho bảng thống kê. */
+function fmtNum(n){
+  try { return Number(n || 0).toLocaleString("vi-VN"); } catch { return String(n || 0); }
+}
+/* BẢN 2.9 — đếm từ ô nhập TRƯỚC khi ghép (mirror quy ước server: tách theo khoảng
+   trắng Unicode — \s trong JS bao gồm NBSP; chuỗi ZWJ/emoji ghép tính 1 từ).
+   Thuần client-side: cập nhật tức thì khi gõ, không gọi server. */
+function countWordsLive(text){
+  const t = String(text || "").trim();
+  if (!t) return 0;
+  return t.split(/\s+/).filter(Boolean).length;
 }
 function toast(msg, type, ms){
   const el = document.createElement("div");
@@ -675,8 +723,9 @@ function syncAlignBtn(){
 function refreshCounts(){
   const en = splitParas($("enText").value).length;
   const vi = splitParas($("viText").value).length;
-  $("enCount").textContent = `${en} đoạn`;
-  $("viCount").textContent = `${vi} đoạn`;
+  // BẢN 2.9 — kèm số từ ngay trên đầu ô nhập: đếm trước khi ghép cho báo giá nhanh
+  $("enCount").textContent = `${en} đoạn · ${fmtNum(countWordsLive($("enText").value))} từ`;
+  $("viCount").textContent = `${vi} đoạn · ${fmtNum(countWordsLive($("viText").value))} từ`;
   syncAlignBtn();
 }
 
@@ -1204,6 +1253,109 @@ function rowsListKeydown(ev){
   }
 }
 
+/* ================= BẢN 2.9 — Thống kê số từ (căn cứ tính giá) ================= */
+let statsCache = null; // báo cáo gần nhất — cho nút 📋 Sao chép
+const STATS_STATUS = [
+  { k: "auto_matched", vi: "Tự khớp", note: "khớp tốt — không cần sửa" },
+  { k: "needs_review", vi: "Cần soát", note: "nên xem lại cặp này" },
+  { k: "unmatched", vi: "Không khớp", note: "một phía thiếu / đã tách cặp" },
+  { k: "human_confirmed", vi: "Đã xác nhận", note: "bạn đã duyệt" },
+];
+async function openStats(){
+  const cur = S.current;
+  if (!cur){
+    toast("Chưa có phiên — bấm “Ghép đoạn” trước rồi mới thống kê được. (Số từ hai ô nhập đã hiện ngay trên đầu ô.)", "warn", 5200);
+    return;
+  }
+  $("statsModal").classList.add("show");
+  $("statsBody").innerHTML = `<p style="color:var(--muted)">Đang đếm…</p>`;
+  try {
+    const rep = await api(`/api/sessions/${encodeURIComponent(cur.id)}/stats`);
+    statsCache = rep;
+    renderStats(rep);
+  } catch (e){
+    statsCache = null;
+    $("statsBody").innerHTML = `<p style="color:var(--rose)">Không thống kê được: ${esc(e.message)}</p>`;
+  }
+}
+function renderStats(r){
+  const en = r.en || {}, vi = r.vi || {}, bs = r.byStatus || {};
+  const p = r.paired || {}, eo = r.enOnly || {}, vo = r.viOnly || {};
+  const side = (name, flag, d, cls) => `
+    <div class="stats-side ${cls}">
+      <div class="ss-name"><span aria-hidden="true">${flag}</span> ${name}</div>
+      <div class="ss-num">${fmtNum(d.words)} từ</div>
+      <div class="ss-sub">${fmtNum(d.segments)} đoạn · ${fmtNum(d.chars)} ký tự</div>
+    </div>`;
+  const rows = STATS_STATUS.map(st => `
+    <tr><td>${esc(st.vi)}</td><td style="color:var(--muted)">${esc(st.note)}</td><td class="n">${fmtNum(bs[st.k] ?? 0)}</td></tr>`).join("");
+  $("statsBody").innerHTML = `
+    <div class="stats-sides">
+      ${side("Bản gốc tiếng Anh (tính giá theo từ nguồn)", "🇬🇧", en, "")}
+      ${side("Bản dịch tiếng Việt", "🇻🇳", vi, "vi")}
+    </div>
+    <table class="stats-tbl" aria-label="Phân bố trạng thái hàng">
+      <thead><tr><th>Trạng thái</th><th>Ý nghĩa</th><th style="text-align:right">Số hàng</th></tr></thead>
+      <tbody>${rows}
+      <tr><td colspan="2" style="font-weight:700">Tổng số hàng</td><td class="n" style="text-align:right">${fmtNum(bs.total ?? r.rows ?? 0)}</td></tr></tbody>
+    </table>
+    <table class="stats-tbl" aria-label="Phân vùng ghép">
+      <thead><tr><th>Vùng</th><th>Số hàng</th><th style="text-align:right">Số từ</th></tr></thead>
+      <tbody>
+        <tr><td>Cặp đủ hai phía (đã ghép)</td><td class="n">${fmtNum(p.rows)}</td><td class="n" style="text-align:right">Anh ${fmtNum(p.enWords)} · Việt ${fmtNum(p.viWords)}</td></tr>
+        <tr><td>Chỉ tiếng Anh (chưa có bản dịch đi kèm)</td><td class="n">${fmtNum(eo.rows)}</td><td class="n" style="text-align:right">${fmtNum(eo.words)}</td></tr>
+        <tr><td>Chỉ tiếng Việt (thừa / thiếu bản gốc)</td><td class="n">${fmtNum(vo.rows)}</td><td class="n" style="text-align:right">${fmtNum(vo.words)}</td></tr>
+      </tbody>
+    </table>
+    <div class="stats-note"><b>Quy ước đếm</b> (công khai để hai bên tính tiền không tranh cãi):
+      <b>từ</b> = chuỗi không khoảng trắng (Unicode, kể cả khoảng trắng không ngắt NBSP; emoji ghép tính 1 từ);
+      <b>ký tự</b> = ký tự Unicode sau chuẩn hoá NFC — dán từ macOS (NFD) hay Windows (NFC) đều ra cùng con số;
+      <b>đoạn</b> = đoạn văn của tài liệu gốc mỗi phía. Đếm 100% trên máy bạn, không gửi đi đâu.</div>`;
+}
+/* Chuỗi tiếng Việt sẵn để dán vào thư báo giá / email khách. */
+function statsQuoteText(r){
+  const en = r.en || {}, vi = r.vi || {}, p = r.paired || {};
+  return [
+    "Thống kê bản dịch (đếm bằng REVA tool — quy ước: từ = chuỗi không khoảng trắng Unicode; ký tự = ký tự Unicode sau chuẩn hoá NFC):",
+    `• Bản gốc tiếng Anh: ${fmtNum(en.segments)} đoạn · ${fmtNum(en.words)} từ · ${fmtNum(en.chars)} ký tự`,
+    `• Bản dịch tiếng Việt: ${fmtNum(vi.segments)} đoạn · ${fmtNum(vi.words)} từ · ${fmtNum(vi.chars)} ký tự`,
+    `• Đã ghép đủ hai phía: ${fmtNum(p.rows)} cặp (Anh ${fmtNum(p.enWords)} từ · Việt ${fmtNum(p.viWords)} từ)`,
+    "Đếm thực hiện trên máy, 100% cục bộ.",
+  ].join("\n");
+}
+async function copyStats(){
+  if (!statsCache){ toast("Chưa có số liệu để sao chép — mở thống kê trước đã.", "warn"); return; }
+  const text = statsQuoteText(statsCache);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (!ok) throw new Error("trình duyệt chặn copy");
+    }
+    toast("Đã sao chép chuỗi thống kê — dán thẳng vào thư báo giá/email (Ctrl+V).", "ok", 4600);
+  } catch (e){
+    // fallback cuối: hiện hộp thoại chọn tay để người dùng Ctrl+C
+    const w = window.open("", "_blank", "width=560,height=380");
+    if (w){
+      w.document.title = "Thống kê — Ctrl+C rồi đóng";
+      const pre = w.document.createElement("pre");
+      pre.style.cssText = "font:13px/1.6 ui-monospace,monospace;white-space:pre-wrap;padding:16px";
+      pre.textContent = text;
+      w.document.body.appendChild(pre);
+      toast("Trình duyệt không cho tự sao chép — đã mở cửa sổ mới, bấm Ctrl+A Ctrl+C để lấy.", "warn", 7000);
+    } else {
+      toast("Không sao chép được: " + e.message, "err", 6500);
+    }
+  }
+}
+
 /* ================= Phiên ================= */
 function newSession(keepText){
   S.current = null;
@@ -1464,6 +1616,13 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnRedo").addEventListener("click", doRedo);
   $("btnRescanAll").addEventListener("click", rescanAll);
 
+  // ---- BẢN 2.9: thống kê số từ ----
+  $("btnStats").addEventListener("click", openStats);
+  $("statsClose").addEventListener("click", () => $("statsModal").classList.remove("show"));
+  $("statsRerun").addEventListener("click", openStats);
+  $("statsCopy").addEventListener("click", copyStats);
+  $("statsModal").addEventListener("click", (ev) => { if (ev.target === $("statsModal")) $("statsModal").classList.remove("show"); });
+
   $("enText").addEventListener("input", refreshCounts);
   // BẢN 2.8 — kéo–thả file .txt vào thẻ ô nhập (đọc cục bộ, không upload)
   wireFileDrop("enText", ".card.lang.en", "ô tiếng Anh");
@@ -1501,6 +1660,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (S.selBlk){ S.selBlk = null; paintBlkSel(); }
       closeDrawer();
       $("stModal").classList.remove("show");
+      $("statsModal").classList.remove("show");
     }
   });
 

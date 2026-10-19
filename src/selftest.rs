@@ -19,14 +19,20 @@
 //! [AUDIT 2026-10-18] thêm 4 bài: CSV/TSV chống chèn công thức (=+-@), xlsx ghi chuỗi
 //! chứ không phải công thức, loại ký tự điều khiển (XLIFF/HTML hợp lệ), chặn SSRF
 //! (địa chỉ nội bộ) + phân giải redirect.
+//!
+//! BẢN 2.9 thêm 4 bài THỐNG KÊ SỐ TỪ (căn cứ tính giá dịch — docs/PLAN-QOL-2026-10-19.md):
+//! corpus chuẩn ra đúng số đếm tay, quy ước biên NFD/NFC/CRLF/emoji ZWJ,
+//! phân vùng hàng paired/một-phía, thuần đọc + 10.000 đoạn < 300 ms.
 
 use crate::aligner::{self, AlignOptions, Row, Status};
 use crate::exporter::{export_session, ExportFormat};
 use crate::fetcher;
 use crate::session::{derive_title, generate_id, Session, SessionStore, Side};
+use crate::stats;
 use serde::Serialize;
 use std::io::Read;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -3006,6 +3012,268 @@ fn t_rescan_all() -> Result<(), String> {
     Ok(())
 }
 
+// ========================= BẢN 2.9: thống kê số từ (căn cứ tính giá) =========================
+
+/// 42. [BẢN 2.9] Thống kê corpus chuẩn ra đúng SỐ ĐẾM TAY (đếm độc lập bằng Python
+///     trên đúng bộ ngữ liệu ở đầu file này): Anh 164 từ / 1.123 ký tự / 10 đoạn;
+///     Việt 203 từ / 916 ký tự / 9 đoạn (thiếu đoạn 7). Phân vùng hàng bảo toàn:
+///     paired + en_only + vi_only đếm đủ mỗi đoạn đúng 1 lần; by_status = counts().
+fn t_stats_counts_corpus() -> Result<(), String> {
+    let store = temp_store("stats1");
+    let s = align_to_session(&store, &corpus_en(), &corpus_vi())?;
+    let rep = stats::report(&s);
+    if rep.en.segments != 10 || rep.en.words != 164 || rep.en.chars != 1123 {
+        return Err(format!(
+            "thống kê phía Anh sai: {} đoạn / {} từ / {} ký tự (kỳ vọng 10 / 164 / 1123)",
+            rep.en.segments, rep.en.words, rep.en.chars
+        ));
+    }
+    if rep.vi.segments != 9 || rep.vi.words != 203 || rep.vi.chars != 916 {
+        return Err(format!(
+            "thống kê phía Việt sai: {} đoạn / {} từ / {} ký tự (kỳ vọng 9 / 203 / 916)",
+            rep.vi.segments, rep.vi.words, rep.vi.chars
+        ));
+    }
+    // 10 đoạn Anh × 9 đoạn Việt (thiếu bản dịch đoạn 7) → 9 cặp + 1 hàng EN-only = 10 hàng
+    if rep.rows != 10 {
+        return Err(format!("phiên phải có 10 hàng, được {}", rep.rows));
+    }
+    if rep.paired.rows != 9 || rep.en_only.rows != 1 || rep.vi_only.rows != 0 {
+        return Err(format!(
+            "phân vùng sai: paired {} / en_only {} / vi_only {} (kỳ vọng 9 / 1 / 0)",
+            rep.paired.rows, rep.en_only.rows, rep.vi_only.rows
+        ));
+    }
+    // BẢO TOÀN: mỗi từ được đếm đúng 1 lần — tổng các vùng = tổng tài liệu gốc
+    if rep.paired.en_words + rep.en_only.words != rep.en.words {
+        return Err("từ Anh: paired + en_only phải bằng tổng tài liệu".into());
+    }
+    if rep.paired.vi_words + rep.vi_only.words != rep.vi.words {
+        return Err("từ Việt: paired + vi_only phải bằng tổng tài liệu".into());
+    }
+    // by_status khớp counts() của phiên và cộng gộp đúng tổng hàng
+    let c = s.counts();
+    let bs = &rep.by_status;
+    if bs.total != c.total
+        || bs.auto_matched != c.auto_matched
+        || bs.needs_review != c.needs_review
+        || bs.unmatched != c.unmatched
+        || bs.human_confirmed != c.human_confirmed
+    {
+        return Err("byStatus phải trùng counts() của phiên".into());
+    }
+    if bs.auto_matched + bs.needs_review + bs.unmatched + bs.human_confirmed != bs.total {
+        return Err("4 trạng thái cộng lại phải bằng tổng số hàng".into());
+    }
+    Ok(())
+}
+
+/// 43. [BẢN 2.9] Quy ước đếm ở BIÊN: NFD và NFC cho CÙNG số từ lẫn số ký tự (chuẩn hoá
+///     NFC trong count_chars — dán từ macOS hay Windows đều ra một con số); CRLF/NBSP không
+///     thổi phồng số từ; emoji ghép ZWJ tính 1 từ; chuỗi toàn khoảng trắng = 0/0; trim ký tự.
+fn t_stats_nfd_crlf_edge() -> Result<(), String> {
+    let nfc = "Tiếng Việt dễ đọc quá!";
+    let nfd: String = nfc.nfd().collect();
+    if nfd == nfc {
+        return Err("chuỗi NFD phải khác byte NFC — kiểm tra này phải thử NFD thật".into());
+    }
+    // NFD vs NFC: CÙNG số từ + CÙNG số ký tự (5 từ / 22 ký tự sau NFC)
+    if stats::count_words(&nfd) != 5 || stats::count_words(nfc) != 5 {
+        return Err(format!(
+            "NFD/NFC phải cùng 5 từ, được {} / {}",
+            stats::count_words(&nfd),
+            stats::count_words(nfc)
+        ));
+    }
+    if stats::count_chars(&nfd) != stats::count_chars(nfc) {
+        return Err(format!(
+            "NFD ({}) và NFC ({}) phải cùng số ký tự sau chuẩn hoá NFC",
+            stats::count_chars(&nfd),
+            stats::count_chars(nfc)
+        ));
+    }
+    if stats::count_chars(nfc) != 22 {
+        return Err(format!(
+            "số ký tự NFC phải là 22, được {}",
+            stats::count_chars(nfc)
+        ));
+    }
+    // CRLF ở GIỮA đoạn không đếm thêm từ (4 từ, không phải 5+)
+    if stats::count_words("alpha beta\r\ngamma delta") != 4 {
+        return Err("CRLF giữa đoạn không được thổi phồng số từ".into());
+    }
+    // NBSP là khoảng trắng Unicode → "một hai" là 2 từ
+    if stats::count_words("một\u{00a0}hai") != 2 {
+        return Err("NBSP (U+00A0) phải được coi là khoảng trắng — 2 từ".into());
+    }
+    // emoji gia đình ghép ZWJ (7 scalar) = 1 từ; câu gồm emoji + "gia đình" = 3 từ
+    if stats::count_words("\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466} gia đình")
+        != 3
+    {
+        return Err("emoji ghép ZWJ phải tính là 1 từ (cả câu = 3 từ)".into());
+    }
+    // chuỗi toàn khoảng trắng → 0 từ 0 ký tự (không lỗi)
+    if stats::count_words(" \t \n ") != 0 || stats::count_chars(" \t\n ") != 0 {
+        return Err("chuỗi toàn khoảng trắng phải đếm 0 từ / 0 ký tự".into());
+    }
+    // khoảng trắng đầu/cuối không tính vào ký tự
+    if stats::count_chars("  halo  ") != 4 {
+        return Err("count_chars phải trim khoảng trắng đầu/cuối".into());
+    }
+    if stats::count_chars("Hello") != 5 {
+        return Err("chuỗi ASCII thuần phải đếm đúng từng ký tự".into());
+    }
+    // cấp PHIÊN: hai phiên chỉ khác nhau NFD vs NFC phải ra cùng báo cáo từ/ký tự
+    let en = vec![
+        "Alpha beta gamma".to_string(),
+        "Delta epsilon zeta".to_string(),
+    ];
+    let vi_nfc = vec![
+        "Bản dịch đầy đủ dấu tiếng Việt".to_string(),
+        "Đoạn thứ hai đấy".to_string(),
+    ];
+    let vi_nfd: Vec<String> = vi_nfc.iter().map(|t| t.nfd().collect()).collect();
+    let rows_nfc = vec![pair_row(0, 0, &en, &vi_nfc, Status::NeedsReview, None)];
+    let rows_nfd = vec![pair_row(0, 0, &en, &vi_nfd, Status::NeedsReview, None)];
+    let r_nfc = stats::report(&manual_session(en.clone(), vi_nfc, rows_nfc));
+    let r_nfd = stats::report(&manual_session(en, vi_nfd, rows_nfd));
+    if r_nfc.vi.words != r_nfd.vi.words || r_nfc.vi.chars != r_nfd.vi.chars {
+        return Err(format!(
+            "hai phiên NFC vs NFD phải cùng số từ/ký tự: {}/{} vs {}/{}",
+            r_nfc.vi.words, r_nfc.vi.chars, r_nfd.vi.words, r_nfd.vi.chars
+        ));
+    }
+    Ok(())
+}
+
+/// 44. [BẢN 2.9] Phân vùng hàng phản ánh đúng thao tác: phiên dựng tay 2 cặp +
+///     1 hàng EN-only + 1 hàng VI-only; tách cặp (✕ Không khớp) → paired giảm,
+///     hai hàng đơn phía xuất hiện; by_status đếm đúng từng bước; bảo toàn từ.
+fn t_stats_rows_partition() -> Result<(), String> {
+    let en = vec![
+        "Alpha beta gamma".to_string(),
+        "Delta epsilon".to_string(),
+        "Zeta only en".to_string(),
+    ];
+    let vi = vec![
+        "Mô tả ba từ".to_string(),
+        "Hai từ rồi".to_string(),
+        "Ôi vi only".to_string(),
+    ];
+    let rows = vec![
+        pair_row(0, 0, &en, &vi, Status::AutoMatched, Some(0.5)),
+        pair_row(1, 1, &en, &vi, Status::HumanConfirmed, Some(0.9)),
+        Row::single_side(Some((2, en[2].clone())), None, Status::Unmatched),
+        Row::single_side(None, Some((2, vi[2].clone())), Status::Unmatched),
+    ];
+    let mut s = manual_session(en, vi, rows);
+    let rep = stats::report(&s);
+    if rep.rows != 4 || rep.paired.rows != 2 || rep.en_only.rows != 1 || rep.vi_only.rows != 1 {
+        return Err(format!(
+            "phân vùng ban đầu sai: rows {} / paired {} / en_only {} / vi_only {}",
+            rep.rows, rep.paired.rows, rep.en_only.rows, rep.vi_only.rows
+        ));
+    }
+    if rep.paired.en_words != 3 + 2 || rep.en_only.words != 3 || rep.vi_only.words != 3 {
+        return Err("số từ từng vùng phải đúng văn bản của vùng đó".into());
+    }
+    let bs = &rep.by_status;
+    if bs.auto_matched != 1 || bs.human_confirmed != 1 || bs.unmatched != 2 || bs.total != 4 {
+        return Err(format!(
+            "byStatus sai: auto {} / human {} / unmatched {} / total {}",
+            bs.auto_matched, bs.human_confirmed, bs.unmatched, bs.total
+        ));
+    }
+    // TÁCH cặp đầu (✕ Không khớp) → 2 hàng đơn phía mới: 1 cặp + 2 EN-only + 2 VI-only
+    s.set_row_status(0, Status::Unmatched)
+        .map_err(|e| format!("tách cặp phải được: {}", e))?;
+    let rep2 = stats::report(&s);
+    if rep2.rows != 5 || rep2.paired.rows != 1 || rep2.en_only.rows != 2 || rep2.vi_only.rows != 2 {
+        return Err(format!(
+            "sau tách cặp: rows {} / paired {} / en_only {} / vi_only {} (kỳ vọng 5/1/2/2)",
+            rep2.rows, rep2.paired.rows, rep2.en_only.rows, rep2.vi_only.rows
+        ));
+    }
+    // bảo toàn sau thao tác: 8 từ Anh = paired(2) + en_only(3+3)
+    if rep2.paired.en_words + rep2.en_only.words != 8 {
+        return Err("sau tách, tổng từ Anh các vùng vẫn phải bằng tài liệu gốc".into());
+    }
+    let bs2 = &rep2.by_status;
+    if bs2.unmatched != 4 || bs2.human_confirmed != 1 || bs2.total != 5 {
+        return Err(format!(
+            "byStatus sau tách sai: unmatched {} / human {} / total {}",
+            bs2.unmatched, bs2.human_confirmed, bs2.total
+        ));
+    }
+    Ok(())
+}
+
+/// 45. [BẢN 2.9] Thuần đọc + hiệu năng: report() không đổi gì phiên (JSON hàng
+///     trước/sau TRÙNG NHAU, undo_stack rỗng, updated_at giữ nguyên) và phiên 10.000
+///     cặp đoạn chạy dưới 300 ms (ngân sách hiệu năng trong spec).
+fn t_stats_readonly_perf() -> Result<(), String> {
+    let store = temp_store("stats3");
+    let s = align_to_session(&store, &corpus_en(), &corpus_vi())?;
+    let before = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+    let before_upd = s.updated_at;
+    let _ = stats::report(&s);
+    let after = serde_json::to_string(&s.rows).map_err(|e| e.to_string())?;
+    if before != after {
+        return Err("report() phải THUẦN ĐỌC — không được thay đổi hàng nào".into());
+    }
+    if !s.undo_stack.is_empty() || !s.redo_stack.is_empty() {
+        return Err("report() không được đẩy snapshot hoàn tác".into());
+    }
+    if s.updated_at != before_upd {
+        return Err("report() không được đổi updated_at của phiên".into());
+    }
+    // 10.000 cặp đoạn — dựng thẳng hàng (không qua bộ ghép) để tất định và nhanh
+    let n = 10_000usize;
+    let en: Vec<String> = (0..n)
+        .map(|k| {
+            format!(
+                "Report {} says Alpha Corp shipped {} units worth {} million dollars.",
+                k,
+                100 + k,
+                10 + k
+            )
+        })
+        .collect();
+    let vi: Vec<String> = (0..n)
+        .map(|k| {
+            format!(
+                "Báo cáo {} cho biết Alpha Corp đã xuất {} sản phẩm trị giá {} triệu đô la.",
+                k,
+                100 + k,
+                10 + k
+            )
+        })
+        .collect();
+    let rows: Vec<Row> = (0..n)
+        .map(|k| pair_row(k, k, &en, &vi, Status::NeedsReview, None))
+        .collect();
+    let big = manual_session(en, vi, rows);
+    let t0 = Instant::now();
+    let rep = stats::report(&big);
+    let ms = t0.elapsed().as_millis();
+    if rep.rows != n || rep.paired.rows != n {
+        return Err(format!(
+            "phiên lớn: phải có {} hàng đủ hai phía, được {}/{}",
+            n, rep.rows, rep.paired.rows
+        ));
+    }
+    if rep.en.words == 0 || rep.vi.words == 0 {
+        return Err("phiên lớn phải đếm được số từ khác 0".into());
+    }
+    if ms >= 300 {
+        return Err(format!(
+            "thống kê {} đoạn mất {} ms — vượt ngân sách 300 ms",
+            n, ms
+        ));
+    }
+    Ok(())
+}
+
 pub fn run_all() -> Vec<TestResult> {
     let tests: Vec<(&str, fn() -> Result<(), String>)> = vec![
         ("01. tách đoạn (dòng trống / dòng đơn / CRLF)", t_split_paragraphs),
@@ -3049,6 +3317,10 @@ pub fn run_all() -> Vec<TestResult> {
         ("39. [AUDIT 2026-10-18] chặn SSRF (địa chỉ nội bộ) + phân giải redirect", t_fetch_ssrf_guard),
         ("40. [BẢN 2.8] xuất TMX 1.2 (bộ nhớ dịch cho CAT: header đủ, tu/tuv/prop, none nguyên văn, escape)", t_export_tmx),
         ("41. [BẢN 2.8] Rescan toàn bộ: 1 nhấn chấm hết hàng đủ hai phía + 1 snapshot hoàn tác nguyên xi", t_rescan_all),
+        ("42. [BẢN 2.9] Thống kê số từ: corpus chuẩn đúng số đếm tay + phân vùng bảo toàn + byStatus", t_stats_counts_corpus),
+        ("43. [BẢN 2.9] Quy ước đếm biên: NFD/NFC cùng số từ lẫn ký tự · CRLF/NBSP/emoji ZWJ · trắng thuần = 0", t_stats_nfd_crlf_edge),
+        ("44. [BẢN 2.9] Phân vùng hàng phản ánh đúng tách cặp (paired/en_only/vi_only + byStatus từng bước)", t_stats_rows_partition),
+        ("45. [BẢN 2.9] Thống kê thuần đọc (không đổi phiên/histo) + 10.000 đoạn < 300 ms", t_stats_readonly_perf),
     ];
 
     let mut results = Vec::with_capacity(tests.len());
