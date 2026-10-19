@@ -637,23 +637,42 @@ impl Session {
         replace: &str,
         case_sensitive: bool,
     ) -> Result<ReplaceOutcome, String> {
-        if find.trim().is_empty() {
-            return Err("Chuỗi tìm không được để trống (hoặc chỉ toàn khoảng trắng).".into());
+        if find.is_empty() {
+            return Err("Chuỗi tìm không được để trống.".into());
         }
+        // [AUDIT #2] chuỗi CHỈ toàn khoảng trắng ĐƯỢC cho phép — để sửa chính lỗi
+        // "2 dấu cách liền" mà kiểm QA số 4 báo (thay "  " → " "). Chỉ chặn rỗng thuần.
         if find == replace {
             return Err("Chuỗi tìm và chuỗi thay giống hệt nhau — không có gì để thay.".into());
         }
         // ---- ĐẾM TRƯỚC: 0 chỗ khớp → trả ngay, KHÔNG snapshot, KHÔNG đổi gì ----
+        // Pha đếm dùng ĐÚNG cùng tiêu chí khối như pha áp (khối chính + khối gộp) —
+        // không qua en_segments() (đòi index cùng Some) để hai pha không lệch nhau. [AUDIT #2]
         let mut changed = 0usize;
         let mut blocks_hit = 0usize;
         let mut rows_hit = 0usize;
         for r in &self.rows {
-            let segs = match side {
-                Side::En => r.en_segments(),
-                Side::Vi => r.vi_segments(),
-            };
+            let mut texts: Vec<&str> = Vec::with_capacity(2);
+            match side {
+                Side::En => {
+                    if let Some(t) = r.en.as_deref() {
+                        texts.push(t);
+                    }
+                    for e in &r.en_extra {
+                        texts.push(e.text.as_str());
+                    }
+                }
+                Side::Vi => {
+                    if let Some(t) = r.vi.as_deref() {
+                        texts.push(t);
+                    }
+                    for e in &r.vi_extra {
+                        texts.push(e.text.as_str());
+                    }
+                }
+            }
             let mut row_hit = false;
-            for (_, t) in &segs {
+            for t in texts {
                 let n = find_match_ranges(t, find, case_sensitive).len();
                 if n > 0 {
                     changed += n;

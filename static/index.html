@@ -1010,6 +1010,7 @@ function renderRows(){
   const rows = filteredRows();
   if (rows.length === 0){
     list.innerHTML = `<div style="padding:34px;text-align:center;color:var(--muted)">Không có hàng nào ở mục lọc này.</div>`;
+    updateFindCount(0); // [AUDIT #2] vẫn cập nhật huy hiệu — không giữ số cũ khi 0 hàng khớp
     return;
   }
   const shown = rows.slice(0, renderCap);
@@ -1590,7 +1591,9 @@ async function openReplace(){
 function countReplacePreview(){
   const cur = S.current;
   const find = $("repFind").value;
-  if (!cur || !find.trim()) return null;
+  // [AUDIT #2] chỉ chặn rỗng THUẦN — chuỗi toàn khoảng trắng vẫn đếm được
+  // (để xem trước việc sửa lỗi "2 dấu cách liền": tìm "  " thay " ")
+  if (!cur || !find) return null;
   const col = $("repColumn").value;
   const ci = !$("repCase").checked;
   const nee = ci ? find.toLowerCase() : find;
@@ -1629,9 +1632,11 @@ function updateReplacePreview(){
   }
   el.innerHTML = `Tìm thấy <b>${fmtNum(p.changed)}</b> chỗ trong <b>${fmtNum(p.blocks)}</b> khối của <b>${fmtNum(p.rows)}</b> hàng — cột ${esc(colName)}.`;
 }
+let repSending = false; // [AUDIT #2] chống Enter kép / bấm 2 lần khi đang gửi
 async function applyReplace(){
   const cur = S.current;
-  if (!cur || $("repApply").disabled) return;
+  if (!cur || $("repApply").disabled || repSending) return;
+  repSending = true;
   const body = {
     find: $("repFind").value,
     replace: $("repReplace").value,
@@ -1658,6 +1663,8 @@ async function applyReplace(){
     }
   } catch (e){
     toast("Không thay được: " + e.message, "err", 7000);
+  } finally {
+    repSending = false;
   }
 }
 
@@ -1665,6 +1672,8 @@ async function applyReplace(){
 function newSession(keepText){
   S.current = null;
   S.filter = "all";
+  S.filterText = ""; // [AUDIT #2] không mang lọc chữ sang phiên mới
+  $("findInput").value = "";
   S.selBlk = null;
   render();
   if (!keepText){ /* giữ nguyên văn bản để chỉnh sửa rồi ghép lại */ }
@@ -1685,6 +1694,8 @@ async function openSession(id){
     const data = await api(`/api/sessions/${encodeURIComponent(id)}`);
     S.current = data;
     S.filter = "all";
+    S.filterText = ""; // [AUDIT #2] không mang lọc chữ của phiên cũ sang phiên vừa mở
+    $("findInput").value = "";
     S.selBlk = null;
     $("enText").value = (data.english || []).join("\n\n");
     $("viText").value = (data.vietnamese || []).join("\n\n");

@@ -3389,6 +3389,8 @@ fn t_qa_no_false_positives() -> Result<(), String> {
         // tên tháng VI viết thành số ("March 12" → "12 tháng 3") — chuyển ngữ đúng,
         // KHÔNG được báo sai số liệu (phát hiện khi QA agent-browser trên bài mẫu demo)
         "Hanoi hosted the Green Tech Summit from March 12 to March 15, 2025, drawing more than 4,000 participants from 32 countries.".to_string(),
+        // [AUDIT #2] "May" VIẾT HOA là tháng → "tháng 5" được tha (không báo oan)
+        "The summit happens in May every year.".to_string(),
     ];
     let vi = vec![
         "Chúng tôi trả 4.000 đô cho 12 vé".to_string(),
@@ -3399,6 +3401,8 @@ fn t_qa_no_false_positives() -> Result<(), String> {
         "Con cáo nâu nhanh nhẹn nhảy qua con chó lười biếng gần bờ sông".to_string(),
         "Mỗi đơn vị giá 2.000".to_string(),
         "Hà Nội tổ chức Hội nghị Công nghệ Xanh từ ngày 12 tháng 3 đến 15 tháng 3 năm 2025, thu hút hơn 4.000 người tham dự từ 32 quốc gia.".to_string(),
+        // [AUDIT #2] "May" VIẾT HOA là tháng → "tháng 5" được tha (không báo oan)
+        "Hội nghị diễn ra vào tháng 5 hằng năm.".to_string(),
     ];
     let rows: Vec<Row> = (0..en.len())
         .map(|k| pair_row(k, k, &en, &vi, Status::AutoMatched, Some(0.8)))
@@ -3449,6 +3453,8 @@ fn t_qa_numeric_edges() -> Result<(), String> {
         "Episode 3 aired in October.".to_string(),
         // KHÔNG có tên tháng → "tháng 10" là số thừa thật (phải nổ)
         "Episode 3 aired this week.".to_string(),
+        // [AUDIT #2] "may" THƯỜNG là ĐỘNG TỪ, không phải tháng → "tháng 5" là số thừa (phải nổ)
+        "You may go home now.".to_string(),
     ];
     let vi = vec![
         "Hỗn hợp 1.234,5 và 4.000 ở đây".to_string(),
@@ -3457,8 +3463,9 @@ fn t_qa_numeric_edges() -> Result<(), String> {
         "hai lần 7 thôi".to_string(),
         "Tập 3 phát sóng vào tháng 10.".to_string(),
         "Tập 3 phát sóng vào tháng 10.".to_string(),
+        "Bạn có thể đi tháng 5.".to_string(),
     ];
-    let rows: Vec<Row> = (0..6)
+    let rows: Vec<Row> = (0..7)
         .map(|k| pair_row(k, k, &en, &vi, Status::NeedsReview, None))
         .collect();
     let rep = qa::report(&manual_session(en, vi, rows));
@@ -3467,22 +3474,22 @@ fn t_qa_numeric_edges() -> Result<(), String> {
         .iter()
         .filter(|i| i.check == "numeric-mismatch")
         .collect();
-    if num.len() != 3 {
+    if num.len() != 4 {
         let all: Vec<String> = rep
             .issues
             .iter()
             .map(|i| format!("h{}:{}", i.row, i.check))
             .collect();
         return Err(format!(
-            "phải có đúng 3 vấn đề số liệu (hàng 1, 3 và 5), được {}: {}",
+            "phải có đúng 4 vấn đề số liệu (hàng 1, 3, 5 và 6), được {}: {}",
             num.len(),
             all.join(", ")
         ));
     }
-    if num[0].row != 1 || num[1].row != 3 || num[2].row != 5 {
+    if num[0].row != 1 || num[1].row != 3 || num[2].row != 5 || num[3].row != 6 {
         return Err(format!(
-            "số liệu phải ở hàng 1, 3 và 5, được {}, {} và {}",
-            num[0].row, num[1].row, num[2].row
+            "số liệu phải ở hàng 1, 3, 5 và 6, được {}, {}, {} và {}",
+            num[0].row, num[1].row, num[2].row, num[3].row
         ));
     }
     if !num[0].detail.contains("3.5") || !num[0].detail.contains("35") {
@@ -3500,18 +3507,25 @@ fn t_qa_numeric_edges() -> Result<(), String> {
             num[2].detail
         ));
     }
-    if num[0].severity != Severity::Error || num[2].severity != Severity::Error {
+    // [AUDIT #2] "may" động từ không được tha số sau "tháng" — phải nêu thừa số 5
+    if !num[3].detail.contains("5") {
+        return Err(format!(
+            "\"may\" động từ (thường) không phải tháng — \"tháng 5\" phải bị bắt: {}",
+            num[3].detail
+        ));
+    }
+    if num[0].severity != Severity::Error || num[3].severity != Severity::Error {
         return Err("sai số liệu phải là mức Lỗi (error)".into());
     }
-    // không kiểm nào khác nổ trên 6 hàng này (đều sạch về khoảng trắng/ngoặc/hoa…)
-    if rep.total != 3 {
+    // không kiểm nào khác nổ trên 7 hàng này (đều sạch về khoảng trắng/ngoặc/hoa…)
+    if rep.total != 4 {
         let all: Vec<String> = rep
             .issues
             .iter()
             .map(|i| format!("h{}:{}", i.row, i.check))
             .collect();
         return Err(format!(
-            "6 hàng này chỉ có 3 lỗi số liệu, được {}: {}",
+            "7 hàng này chỉ có 4 lỗi số liệu, được {}: {}",
             rep.total,
             all.join(", ")
         ));
@@ -3519,8 +3533,9 @@ fn t_qa_numeric_edges() -> Result<(), String> {
     Ok(())
 }
 
-/// 49. [BẢN 2.9] QA HÀNG MỘT PHÍA: kiểm 1/4/5/6/8 chạy trên phía CÓ MẶT (soát đúng
-///     nghĩa — số bên thiếu được liệt kê); kiểm 2/3 (cần đủ hai phía) bỏ qua.
+/// 49. [BẢN 2.9] QA HÀNG MỘT PHÍA: kiểm 4/5/6/8 chạy trên phía CÓ MẶT (mức soát đúng
+///     nghĩa); kiểm 1/2/3 (cần đủ hai phía) bỏ qua — [AUDIT #2] kiểm số liệu cũng bỏ:
+///     tách cặp xong mọi số phía có mặt thành thiếu/thừa oan, nhiễu hơn giá trị.
 fn t_qa_single_side() -> Result<(), String> {
     let en_doc = vec!["NASA spent  1,000 dollars (".to_string()];
     let vi_doc = vec!["Khong duoc di lu\u{0301}c nay".to_string()];
@@ -3529,19 +3544,16 @@ fn t_qa_single_side() -> Result<(), String> {
         Row::single_side(None, Some((0, vi_doc[0].clone())), Status::Unmatched),
     ];
     let rep = qa::report(&manual_session(en_doc, vi_doc, rows));
-    // hàng 0 (chỉ EN): số liệu thiếu + khoảng trắng kép + ngoặc mở + NASA mất = 4 vấn đề
+    // hàng 0 (chỉ EN): khoảng trắng kép + ngoặc mở + NASA mất = 3 vấn đề.
+    // [AUDIT #2] kiểm số liệu KHÔNG nổ trên hàng một phía — tách cặp xong thì mọi số
+    // phía có mặt thành thiếu/thừa oan (nhiễu hơn giá trị — chữ “none” đã tự nói).
     let row0: Vec<&str> = rep
         .issues
         .iter()
         .filter(|i| i.row == 0)
         .map(|i| i.check)
         .collect();
-    let want0 = [
-        "numeric-mismatch",
-        "double-space",
-        "unpaired-symbol",
-        "alluppercase-mismatch",
-    ];
+    let want0 = ["double-space", "unpaired-symbol", "alluppercase-mismatch"];
     for w in want0 {
         if !row0.contains(&w) {
             return Err(format!(
@@ -3557,6 +3569,9 @@ fn t_qa_single_side() -> Result<(), String> {
             row0.len(),
             row0
         ));
+    }
+    if row0.contains(&"numeric-mismatch") {
+        return Err("[AUDIT #2] kiểm số liệu không được nổ trên hàng một phía (báo oan)".into());
     }
     // hàng 1 (chỉ VI): thiếu dấu (khong/duoc) + NFD lẫn = 2 vấn đề
     let row1: Vec<&str> = rep
@@ -3580,8 +3595,8 @@ fn t_qa_single_side() -> Result<(), String> {
             ));
         }
     }
-    if rep.total != 6 {
-        return Err(format!("tổng phải 4 + 2 = 6, được {}", rep.total));
+    if rep.total != 5 {
+        return Err(format!("tổng phải 3 + 2 = 5, được {}", rep.total));
     }
     Ok(())
 }
@@ -3842,9 +3857,9 @@ fn t_replace_case_and_column() -> Result<(), String> {
     Ok(())
 }
 
-/// 54. [BẢN 2.9] Đầu vào xấu: chuỗi tìm rỗng/toàn khoảng trắng → lỗi; tìm == thay →
-///     lỗi; cột lạ không phân giải được; 0 chỗ khớp → changed=0, KHÔNG snapshot,
-///     KHÔNG đổi updated_at (canUndo giữ nguyên).
+/// 54. [BẢN 2.9] Đầu vào xấu: chuỗi tìm rỗng thuần / tìm == thay / cột lạ bị chặn;
+///     chuỗi CHỈ toàn khoảng trắng ĐƯỢC thay (sửa lỗi "2 dấu cách" — [AUDIT #2]);
+///     0 chỗ khớp → changed=0, KHÔNG snapshot, KHÔNG đổi updated_at (canUndo giữ).
 fn t_replace_invalid_inputs() -> Result<(), String> {
     let en = vec!["Alpha beta".to_string()];
     let vi = vec!["Mô tả hai từ".to_string()];
@@ -3852,10 +3867,22 @@ fn t_replace_invalid_inputs() -> Result<(), String> {
     let mut s = manual_session(en, vi, rows);
 
     if s.replace_all(Side::Vi, "", "x", false).is_ok() {
-        return Err("chuỗi tìm rỗng phải bị từ chối".into());
+        return Err("chuỗi tìm rỗng thuần phải bị từ chối".into());
     }
-    if s.replace_all(Side::Vi, "   ", "x", false).is_ok() {
-        return Err("chuỗi tìm toàn khoảng trắng phải bị từ chối".into());
+    // [AUDIT #2] chuỗi CHỈ toàn khoảng trắng ĐƯỢC CHO PHÉP — để sửa được chính lỗi
+    // "2 dấu cách liền" mà kiểm QA số 4 báo (tìm "  " thay " "). Kiểm chứng chức năng:
+    let en2 = vec!["Two  spaces here".to_string()];
+    let vi2 = vec!["Hai  dấu cách ở đây".to_string()];
+    let rows2 = vec![pair_row(0, 0, &en2, &vi2, Status::NeedsReview, None)];
+    let mut s2 = manual_session(en2, vi2, rows2);
+    let out_fix = s2
+        .replace_all(Side::Vi, "  ", " ", false)
+        .map_err(|e| format!("thay '  ' → ' ' phải được: {}", e))?;
+    if out_fix.changed != 1 || s2.rows[0].vi.as_deref() != Some("Hai dấu cách ở đây") {
+        return Err(format!(
+            "thay '  ' → ' ' phải sửa được lỗi 2 dấu cách, được {} chỗ: {:?}",
+            out_fix.changed, s2.rows[0].vi
+        ));
     }
     if s.replace_all(Side::Vi, "Hà Nội", "Hà Nội", false).is_ok() {
         return Err("tìm == thay phải bị từ chối (không có gì để thay)".into());
@@ -4102,13 +4129,13 @@ pub fn run_all() -> Vec<TestResult> {
         ("45. [BẢN 2.9] Thống kê thuần đọc (không đổi phiên/histo) + 10.000 đoạn < 300 ms", t_stats_readonly_perf),
         ("46. [BẢN 2.9] QA 8 kiểm: dương tính từng loại — đúng hàng, đúng mức, đúng thứ tự + JSON camelCase", t_qa_detects_all_eight),
         ("47. [BẢN 2.9] QA không báo oan: 4.000≡4,000 · don't · «» cân · từ hợp lệ không dấu · sạch = 0", t_qa_no_false_positives),
-        ("48. [BẢN 2.9] QA số liệu: bắt dời thập phân (3.5→35) · thiếu/thừa lần lặp · $ % không tính", t_qa_numeric_edges),
-        ("49. [BẢN 2.9] QA hàng một phía: kiểm 1/4/5/6/8 chạy phía có mặt, kiểm 2/3 bỏ; phiên rỗng = 0", t_qa_single_side),
+        ("48. [BẢN 2.9] QA số liệu: dời thập phân (3.5→35) · thiếu/thừa · $ % bỏ · tháng 1..=12 · may-động-từ không tha", t_qa_numeric_edges),
+        ("49. [BẢN 2.9] QA hàng một phía: kiểm 4/5/6/8 chạy phía có mặt, kiểm 1/2/3 bỏ (audit#2: số liệu không oan); phiên rỗng = 0", t_qa_single_side),
         ("50. [BẢN 2.9] QA thuần đọc + tất định + không phụ thuộc LaBSE (rescan cos=1 không đổi báo cáo)", t_qa_readonly_labse_independent),
         ("51. [BẢN 2.9] QA hiệu năng: 10.000 đoạn đủ hai phía soát dưới 1.000 ms, 0 báo oan", t_qa_perf_10k),
         ("52. [BẢN 2.9] Thay thế: 3 chỗ đúng nội dung + sync tài liệu gốc + 1 snapshot + undo/redo nguyên xi", t_replace_basic_undo_redo),
         ("53. [BẢN 2.9] Thay thế: hoa thường (The/the/THE) + chọn cột (EN không đụng VI) + không chồng lấn", t_replace_case_and_column),
-        ("54. [BẢN 2.9] Thay thế đầu vào xấu: rỗng/trắng/tìm==thay bị chặn · 0 khớp = 0 snapshot, 0 đổi", t_replace_invalid_inputs),
+        ("54. [BẢN 2.9] Thay thế: rỗng/tìm==thay bị chặn · khoảng trắng ĐƯỢC thay (sửa 2 dấu cách) · 0 khớp = 0 snapshot", t_replace_invalid_inputs),
         ("55. [BẢN 2.9] Thay lô lớn 10 chỗ/5 hàng đúng 1 snapshot · hàng gộp thay đủ cả 2 khối VI", t_replace_batch_and_merged_rows),
         ("56. [BẢN 2.9] Thay thế biên Unicode (dấu/emoji ZWJ/khối rỗng/NFD) + 10.000 hàng < 1 s", t_replace_unicode_edges_perf),
     ];
