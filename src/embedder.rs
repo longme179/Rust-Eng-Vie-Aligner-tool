@@ -1,21 +1,17 @@
-//! embedder.rs — LaBSE (TUỲ CHỌN): gọi dịch vụ nhúng câu cục bộ để nâng độ chính xác ghép.
+//! embedder.rs — LaBSE (CỐT LÕI từ 2.10): nhúng câu bằng engine IN-PROCESS tự tải
+//! (xem `labse_native.rs`), tự động dùng cho mọi lượt ghép.
+//! Nếu người dùng đặt `REVA_LABSE_URL` (dịch vụ Python riêng, giao thức cũ) thì tôn trọng
+//! đường HTTP đó; nếu không — engine native là mặc định.
 //!
-//! Triết lý: LaBSE là mấu chốt cho độ chính xác ghép cặp — nhưng app PHẢI luôn có đường
-//! fallback: nếu dịch vụ LaBSE không chạy, bộ ghép vẫn hoạt động bằng điểm từ vựng
-//! (đúng như bản 2.1) và giao diện báo rõ “Chỉ từ vựng — chưa bật LaBSE”.
-//!
-//! Giao thức HTTP với `labse/labse_service.py` (mặc định chạy tại 127.0.0.1:3031):
+//! Giao thức HTTP (tuân phương bản trước, để tương thích):
 //!   GET  /health                  -> {"status":"ok","model":"LaBSE","dim":768}
 //!   POST /embed  {"texts":[...]}  -> {"embeddings":[[...], ...]}   (đã chuẩn hoá L2)
 //!
-//! Biến môi trường:
-//!   REVA_LABSE_URL      — địa chỉ dịch vụ LaBSE (mặc định http://127.0.0.1:3031)
-//!   CANH_DOI_LABSE_URL  — tên CŨ (bản ≤2.4), vẫn được chấp nhận cho tương thích
-//!
-//! Mọi thất bại (không chạy / lỗi mạng / lỗi parse) đều fallback êm ái về bộ từ vựng,
+//! Mọi thất bại (chưa tải xong / lỗi model / lỗi mạng) đều fallback êm ái về bộ từ vựng,
 //! kèm `labse_error` để giao diện thông báo cho người dùng.
 
 use crate::aligner::{self, AlignOptions, AlignOutput};
+use crate::labse_native;
 use serde::Deserialize;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -23,9 +19,14 @@ use std::time::{Duration, Instant};
 const HEALTH_TTL: Duration = Duration::from_secs(30);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
 const EMBED_TIMEOUT: Duration = Duration::from_secs(600); // CPU chậm + lô 32 đoạn vẫn đủ thời gian
-const EMBED_BATCH: usize = 32; // mỗi request gửi tối đa 32 đoạn
+const EMBED_BATCH: usize = 32; // mỗi request HTTP gửi tối đa 32 đoạn (đường service cũ)
 
-/// Địa chỉ dịch vụ LaBSE (đọc biến môi trường, bỏ dấu `/` cuối).
+/// Người dùng CÓ đặt REVA_LABSE_URL / CANH_DOI_LABSE_URL tường minh không?
+fn http_url_overridden() -> bool {
+    std::env::var("REVA_LABSE_URL").is_ok() || std::env::var("CANH_DOI_LABSE_URL").is_ok()
+}
+
+/// Địa chỉ dịch vụ LaBSE HTTP (đọc biến môi trường, bỏ dấu `/` cuối).
 /// Ưu tiên REVA_LABSE_URL (bản 2.5+), giữ tương thích CANH_DOI_LABSE_URL cũ.
 pub fn labse_url() -> String {
     std::env::var("REVA_LABSE_URL")
@@ -45,8 +46,12 @@ fn agent(timeout: Duration) -> ureq::Agent {
 
 static HEALTH_CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
 
-/// LaBSE có đang chạy không (đệm 30s).
+/// LaBSE có sẵn sàng không — engine native (in-process) hoặc dịch vụ HTTP (nếu người dùng
+/// đặt URL tường minh). Thứ tự ưu tiên: native → HTTP (đệm 30s).
 pub fn labse_ready() -> bool {
+    if !http_url_overridden() {
+        return labse_native::is_ready();
+    }
     {
         let guard = HEALTH_CACHE.lock().expect("health cache lock");
         if let Some((at, ok)) = *guard {
@@ -80,11 +85,19 @@ struct EmbedResponse {
     embeddings: Vec<Vec<f32>>,
 }
 
-/// Nhúng danh sách đoạn (chia lô 32). Lỗi mạng/JSON -> Err(chuỗi tiếng Việt).
+/// Nhúng danh sách đoạn — native trước (lô 16 trong engine), HTTP sau (lô 32, đường cũ).
+/// Lỗi cả hai đường -> Err(chuỗi tiếng Việt).
 pub fn embed(texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
     if texts.is_empty() {
         return Ok(Vec::new());
     }
+    if !http_url_overridden() {
+        return labse_native::embed(texts);
+    }
+    embed_http(texts)
+}
+
+fn embed_http(texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
     let a = agent(EMBED_TIMEOUT);
     let url = format!("{}/embed", labse_url());
     let mut out: Vec<Vec<f32>> = Vec::with_capacity(texts.len());

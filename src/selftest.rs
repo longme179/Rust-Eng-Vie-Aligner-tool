@@ -4138,6 +4138,8 @@ pub fn run_all() -> Vec<TestResult> {
         ("54. [BẢN 2.9] Thay thế: rỗng/tìm==thay bị chặn · khoảng trắng ĐƯỢC thay (sửa 2 dấu cách) · 0 khớp = 0 snapshot", t_replace_invalid_inputs),
         ("55. [BẢN 2.9] Thay lô lớn 10 chỗ/5 hàng đúng 1 snapshot · hàng gộp thay đủ cả 2 khối VI", t_replace_batch_and_merged_rows),
         ("56. [BẢN 2.9] Thay thế biên Unicode (dấu/emoji ZWJ/khối rỗng/NFD) + 10.000 hàng < 1 s", t_replace_unicode_edges_perf),
+        ("57. [BẢN 2.10] LaBSE native (cốt lõi): trạng thái đúng dạng — không panic khi chưa tải; embed báo lỗi tiếng Việt", t_labse_native_status_hermetic),
+        ("58. [BẢN 2.10] LaBSE native fallback ghép bằng từ vựng khi chưa sẵn sàng; khi sẵn sàng: vector L2 hợp lệ", t_labse_native_align_fallback),
     ];
 
     let mut results = Vec::with_capacity(tests.len());
@@ -4160,4 +4162,87 @@ pub fn run_all() -> Vec<TestResult> {
         });
     }
     results
+}
+
+// ========================= BẢN 2.10 — LaBSE native (cốt lõi) =========================
+
+/// 57. Trạng thái engine native phải luôn hợp lệ (kể cả khi chưa tải), không panic,
+/// và embed() khi chưa sẵn sàng phải trả lỗi tiếng Việt (để pipeline fallback êm ái).
+fn t_labse_native_status_hermetic() -> Result<(), String> {
+    use crate::labse_native;
+
+    // status_json phải đủ khóa cho /api/model-status + UI.
+    let st = labse_native::status_json();
+    for key in ["phase", "pct", "detail", "modelDir", "model", "ortVersion"] {
+        if st.get(key).is_none() {
+            return Err(format!("status_json thiếu khóa {}", key));
+        }
+    }
+    let phase = st.get("phase").and_then(|v| v.as_str()).unwrap_or("");
+    if !["off", "downloading", "loading", "ready", "failed"].contains(&phase) {
+        return Err(format!("phase lạ: {:?}", phase));
+    }
+
+    // Chưa sẵn sàng → embed phải Err (không panic) với thông điệp tiếng Việt hữu ích.
+    if !labse_native::is_ready() {
+        match labse_native::embed(&[String::from("test")]) {
+            Ok(_) => {
+                return Err("embed() phải Err khi engine chưa ready".to_string());
+            }
+            Err(e) => {
+                if e.is_empty() || e.chars().all(|c| c.is_ascii()) {
+                    return Err(format!(
+                        "thông điệp lỗi nên là tiếng Việt dễ hiểu, được: {:?}",
+                        e
+                    ));
+                }
+            }
+        }
+    }
+    // phase() clone + PartialEq hoạt động (dùng bởi route retry).
+    let _p = labse_native::phase();
+    let _ = _p == labse_native::Phase::Off;
+    Ok(())
+}
+
+/// 58. Fallback: pipeline ghép vẫn chạy bằng từ vựng khi native chưa sẵn sàng;
+/// khi native ĐÃ sẵn sàng (máy có model): nhúng 2 câu phải cho 2 vector cùng chiều
+/// (≥64) và đã chuẩn hoá L2 (độ dài ≈ 1).
+fn t_labse_native_align_fallback() -> Result<(), String> {
+    use crate::labse_native;
+
+    let en = "Hanoi hosted the summit in 2025.";
+    let vi = "Hà Nội tổ chức hội nghị năm 2025.";
+    let opts = crate::aligner::AlignOptions::default();
+    let out = crate::embedder::align_pipeline(en, vi, &opts)
+        .map_err(|e| format!("pipeline phải chạy được bất kể LaBSE: {:?}", e.0))?;
+    if out.output.rows.is_empty() {
+        return Err("phải có ít nhất 1 hàng kết quả".to_string());
+    }
+    if out.engine != "lexical" && out.engine != "lexical+labse" {
+        return Err(format!("engine lạ: {:?}", out.engine));
+    }
+
+    if labse_native::is_ready() {
+        // Máy có model thật — kiểm trực tiếp: 2 vector, cùng chiều, L2 ≈ 1.
+        let v = labse_native::embed(&[
+            String::from("Hello, this is a test."),
+            String::from("Xin chào, đây là bài kiểm tra."),
+        ])
+        .map_err(|e| format!("native embed lỗi: {}", e))?;
+        if v.len() != 2 {
+            return Err(format!("phải trả 2 vector, được {}", v.len()));
+        }
+        let d = v[0].len();
+        if d < 64 || v[1].len() != d {
+            return Err(format!("chiều vector lạ: {} / {}", d, v[1].len()));
+        }
+        for (i, vec) in v.iter().enumerate() {
+            let n: f64 = vec.iter().map(|&x| (x * x) as f64).sum();
+            if (n - 1.0).abs() > 0.01 {
+                return Err(format!("vector {} chưa chuẩn hoá L2 (|x|² = {:.4})", i, n));
+            }
+        }
+    }
+    Ok(())
 }

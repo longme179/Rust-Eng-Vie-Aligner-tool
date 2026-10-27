@@ -5,6 +5,7 @@
 **REVA** giúp bạn đi tìm *"đoạn tiếng Anh này tương ứng với đoạn tiếng Việt nào"* giữa một bài gốc và bản dịch — rồi xuất ra **bảng đối chiếu Excel/CSV/HTML…** để soát dịch. REVA **không dịch** — chỉ ghép và sắp xếp.
 
 - 🏠 **Chạy 100% trên máy bạn** — văn bản của bạn không bị gửi lên Internet đâu cả.
+- 🧠 **LaBSE chạy sẵn trong chương trình** (bản 2.10): tự tải model ~450 MB đúng 1 lần, tự nạp ngay trong binary — không cần Python, không cần cài gì thêm.
 - 🖱️ **Kéo–thả từng đoạn** để sắp xếp lại; làm sai thì **Ctrl+Z hoàn tác ngay**.
 - 🌙 **Giao diện sáng/tối** (bản 2.9): bấm nút mặt trời/mặt trăng ở góc phải thanh đầu — lựa chọn được ghi nhớ trên máy bạn.
 - 🎨 **Xuất Excel tự tô màu**: <span>🟩</span> xanh = khớp · 🟨 vàng = cần soát · 🩷 hồng = không khớp.
@@ -27,21 +28,22 @@
 
 ---
 
-## 1. Bạn cần cài gì? (chỉ 2 phần mềm)
+## 1. Bạn cần cài gì? (chỉ 1 phần mềm)
 
 | Phần mềm | Bắt buộc? | Để làm gì | Dung lượng |
 |---|---|---|---|
 | **Rust** (bộ công cụ biên dịch) | ✅ **Bắt buộc** | Biên dịch REVA thành chương trình chạy được | ~1,5 GB (Windows cần thêm *Visual Studio C++ Build Tools* ~6 GB) |
-| **Python 3** | 🔶 Tuỳ chọn *(rất khuyên dùng)* | Chạy **LaBSE** — chế độ ghép chính xác cao hơn | ~150 MB |
+| Python 3 | ❌ KHÔNG cần nữa (từ bản 2.10) | LaBSE giờ chạy **ngay trong chương trình** — không cần Python | — |
 
-**Sau đó bạn KHÔNG phải cài thêm gì thủ công nữa.** File lệnh chạy REVA sẽ tự làm các việc còn lại lần đầu tiên:
+**Sau đó bạn KHÔNG phải cài thêm gì thủ công nữa.** Từ bản **2.10**, lần đầu chạy REVA sẽ TỰ TẢI (chỉ đúng 1 lần, có nối lại nếu mạng đứt):
 
-- tạo môi trường Python riêng cho REVA (`labse-venv`) — không đụng vào Python của máy bạn;
-- tải PyTorch + sentence-transformers (~2 GB, **chỉ lần đầu**);
-- tải model LaBSE (~2 GB, **chỉ đúng 1 lần**, lưu trong thư mục `labse/model/` — về sau build lại mã nguồn bao nhiêu lần cũng **không bao giờ tải lại**).
+- model **LaBSE** dạng ONNX tinh gọn (~450 MB) — lưu trong `data/models/labse/`;
+- thư viện chạy ONNX Runtime (~11 MB Linux / ~79 MB Windows) — lưu trong `data/models/ort/`.
 
-**Tổng dung lượng cần chuẩn bị: ~6 GB** (Windows: ~12 GB tính cả Visual Studio Build Tools).
-**Không muốn cài Python?** REVA vẫn chạy được bình thường — xem mục [FAQ](#7-câu-hỏi-thường-gặp). LaBSE chỉ là *tuỳ chọn nâng độ chính xác*.
+Trong lúc chờ tải, REVA vẫn ghép bình thường bằng bộ từ vựng; tải xong tự nạp và mọi lượt ghép sau dùng kèm LaBSE (huy hiệu góc trái màn hình hiện tiến trình). Về sau build lại mã nguồn bao nhiêu lần cũng **không bao giờ tải lại**.
+
+**Tổng dung lượng cần chuẩn bị: ~1,5 GB** (Windows: ~7 GB tính cả Visual Studio Build Tools) — giảm từ ~6 GB của các bản trước.
+**Không có mạng lần đầu?** REVA vẫn chạy được bình thường bằng bộ từ vựng — bấm huy hiệu để thử tải LaBSE sau.
 
 ---
 
