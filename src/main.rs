@@ -1,5 +1,9 @@
-//! main.rs — REVA tool (reva-tool) v2.7
+//! main.rs — REVA tool (reva-tool) v2.10
 //! Web server 1-binary: giao diện + API, chạy 100% cục bộ.
+//! Bản 2.10: LaBSE CỐT LÕI — tự tải model ONNX int8 (~450 MB, 1 lần duy nhất) + thư viện
+//!           ONNX Runtime, nạp IN-PROCESS (không Python, không cài thêm gì), tự dùng cho
+//!           mọi lượt ghép; thất bại thì trượt về bộ từ vựng như cũ.
+//!           Hướng web: nhánh `vercel` trong repo (REVA Web + LaBSE transformers.js).
 //! Bản 2.7: xuất Excel THẬT (.xlsx) tự tô màu ô theo trạng thái hàng (xanh/vàng/hồng
 //!           nhạt) + đóng băng dòng đầu + autofilter + chú giải màu — CSV/TSV là văn
 //!           bản thuần nên không mang màu được.
@@ -17,6 +21,7 @@ mod embedder;
 mod exporter;
 mod fetcher;
 mod fold;
+mod labse_native;
 mod lexicon;
 mod qa;
 mod selftest;
@@ -74,10 +79,15 @@ async fn api_health() -> Response {
 }
 
 async fn api_model_status(State(state): State<SharedState>) -> Response {
-    // Trạng thái LaBSE thật (đệm 30s phía embedder; không chặn runtime).
+    // Trạng thái LaBSE thật (native in-process ưu tiên; HTTP đệm 30s phía embedder).
     let labse_ready = tokio::task::spawn_blocking(embedder::labse_ready)
         .await
         .unwrap_or(false);
+    let native = labse_native::status_json();
+    let native_phase = native
+        .get("phase")
+        .and_then(|v| v.as_str())
+        .unwrap_or("off");
     let engine = if labse_ready {
         "lexical+labse"
     } else {
@@ -85,6 +95,12 @@ async fn api_model_status(State(state): State<SharedState>) -> Response {
     };
     let mode = if labse_ready {
         "Từ vựng + LaBSE — chế độ chính xác cao"
+    } else if native_phase == "downloading" {
+        "Đang tải LaBSE (phần cốt lõi, 1 lần duy nhất) — tạm dùng bộ từ vựng"
+    } else if native_phase == "loading" {
+        "Đang nạp LaBSE vào bộ nhớ — tạm dùng bộ từ vựng"
+    } else if native_phase == "failed" {
+        "Bộ từ vựng — LaBSE gặp lỗi (bấm huy hiệu để thử lại)"
     } else {
         "Từ vựng + số học + vị trí (offline — chưa bật LaBSE)"
     };
@@ -95,11 +111,24 @@ async fn api_model_status(State(state): State<SharedState>) -> Response {
         "labse": {
             "ready": labse_ready,
             "url": embedder::labse_url(),
+            "native": native,
         },
         "version": env!("CARGO_PKG_VERSION"),
         "uptimeSec": now_ms().saturating_sub(state.started_at) / 1000,
         "sessions": state.store.count(),
     }))
+}
+
+/// Thử tải/nạp lại LaBSE (nút trên UI khi lỗi).
+async fn api_labse_retry() -> Response {
+    let phase = labse_native::phase();
+    match phase {
+        labse_native::Phase::Failed(_) | labse_native::Phase::Off => {
+            labse_native::retry();
+            ok_json(json!({ "ok": true, "started": true }))
+        }
+        _ => ok_json(json!({ "ok": true, "started": false, "phase": labse_native::status_json() })),
+    }
 }
 
 #[derive(Deserialize)]
@@ -984,6 +1013,9 @@ async fn main() {
 
     let data_dir = resolve_data_dir();
     let sessions_dir = data_dir.join("sessions");
+    // LaBSE cốt lõi: truyền thư mục dữ liệu rồi bật tiến trình tự-tải + tự-nạp nền.
+    labse_native::set_data_dir(data_dir.clone());
+    labse_native::bootstrap();
     let store = session::SessionStore::open(sessions_dir);
     let state = Arc::new(AppState {
         store,
@@ -995,6 +1027,7 @@ async fn main() {
         .route("/favicon.svg", get(favicon))
         .route("/api/health", get(api_health))
         .route("/api/model-status", get(api_model_status))
+        .route("/api/labse/retry", post(api_labse_retry))
         .route("/api/align", post(api_align))
         .route(
             "/api/sessions",

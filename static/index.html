@@ -973,19 +973,50 @@ function busy(on, title, sub){
   if (sub !== undefined) $("busyS").textContent = sub;
   syncAlignBtn();
 }
-/* Cập nhật huy hiệu động cơ (badge) theo trạng thái LaBSE thật từ server. */
+/* Cập nhật huy hiệu động cơ (badge) theo trạng thái LaBSE thật từ server.
+   BẢN 2.10 — LaBSE cốt lõi: huy hiệu còn hiển thị tiến trình tự tải model
+   (đang tải %) và nút thử lại khi lỗi. */
 function updateEngineBadge(st){
   S.labseReady = !!(st && st.labse && st.labse.ready);
   const badge = $("engineBadge"), txt = $("engineText");
   badge.classList.toggle("on", S.labseReady);
   badge.classList.toggle("off", !S.labseReady);
+  const nat = st && st.labse && st.labse.native;
+  const phase = nat ? String(nat.phase) : "";
+  const pct = nat ? Number(nat.pct) || 0 : 0;
   if (S.labseReady){
     txt.textContent = "Từ vựng + LaBSE — chính xác cao";
-    badge.title = "LaBSE đang chạy tại " + ((st.labse && st.labse.url) || "127.0.0.1:3031") + " — bộ ghép đang dùng kèm LaBSE.";
+    badge.title = "LaBSE (engine cục bộ) đang chạy — bộ ghép đang dùng kèm LaBSE. Model nằm trong thư mục data/models — không gửi văn bản đi đâu.";
+  } else if (phase === "downloading"){
+    txt.textContent = "Đang tải LaBSE… " + pct + "%";
+    badge.title = "Đang tự tải model LaBSE (~450 MB, CHỈ 1 LẦN duy nhất) + thư viện chạy — xong sẽ tự nạp và dùng cho mọi lượt ghép. Trong lúc chờ, bộ từ vựng vẫn ghép bình thường.";
+  } else if (phase === "loading"){
+    txt.textContent = "Đang nạp LaBSE…";
+    badge.title = "Model đã tải xong — đang nạp vào bộ nhớ (vài giây).";
+  } else if (phase === "failed"){
+    txt.textContent = "LaBSE lỗi — bấm thử lại";
+    badge.title = "LaBSE gặp lỗi: " + ((nat && nat.detail) || "không rõ") + " — bấm huy hiệu này để thử tải lại. Bộ từ vựng vẫn hoạt động bình thường.";
   } else {
     txt.textContent = "Chỉ từ vựng — chưa bật LaBSE";
-    badge.title = "Chưa có LaBSE — bộ ghép đang chỉ dùng từ vựng. Chạy file “build-and-run-…”. trong thư mục mã nguồn để tự build và bật LaBSE — chế độ chính xác cao hơn. Xem README.md mục LaBSE.";
+    badge.title = "Chưa có LaBSE — bộ ghép đang chỉ dùng từ vựng. Bấm huy hiệu để thử bật LaBSE (tự tải model ~450 MB lần đầu), hoặc xem README.md mục LaBSE.";
   }
+}
+/* Poll model-status khi LaBSE đang tải/nạp — ngừng khi xong. */
+let labsePollTimer = null;
+function watchLabseProgress(){
+  if (labsePollTimer) return;
+  labsePollTimer = setInterval(async () => {
+    try {
+      const st = await api("/api/model-status");
+      updateEngineBadge(st);
+      const phase = st && st.labse && st.labse.native ? String(st.labse.native.phase) : "";
+      if (phase !== "downloading" && phase !== "loading"){
+        clearInterval(labsePollTimer); labsePollTimer = null;
+        if (phase === "ready") toast("LaBSE đã sẵn sàng — bộ ghép giờ dùng kèm LaBSE (chính xác cao).", "ok", 6000);
+        if (phase === "failed") toast("Tải LaBSE lỗi: " + (st.labse.native.detail || "?") + " — bấm huy hiệu để thử lại.", "warn", 9000);
+      }
+    } catch { /* offline — bỏ qua lượt này */ }
+  }, 1500);
 }
 async function api(path, opts){
   const res = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
@@ -2201,11 +2232,25 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   $("btnDrawer").addEventListener("click", openDrawer);
-  $("engineBadge").addEventListener("click", () => {
+  $("engineBadge").addEventListener("click", async () => {
     if (S.labseReady){
       toast("LaBSE đang chạy — bộ ghép đang dùng kèm LaBSE cho độ chính xác cao.", "ok", 5000);
-    } else {
-      toast("Chưa bật LaBSE: chạy file build-and-run-windows.bat / build-and-run-macos.sh / build-and-run-linux.sh trong thư mục mã nguồn để tự build và khởi động LaBSE (mạng cần ~2 GB lần đầu). Xem README.md mục LaBSE.", "warn", 10000);
+      return;
+    }
+    // BẢN 2.10 — bấm để tự tải/nạp lại LaBSE (phần cốt lõi).
+    try {
+      const r = await api("/api/labse/retry", { method: "POST" });
+      if (r && r.started){
+        toast("Đang tự tải LaBSE (model ~450 MB, chỉ 1 lần duy nhất) — huy hiệu sẽ hiện tiến trình. Bộ từ vựng vẫn ghép bình thường lúc chờ.", "ok", 9000);
+        watchLabseProgress();
+      } else {
+        const phase = r && r.phase && r.phase.phase;
+        if (phase === "downloading") { toast("LaBSE đang được tải — " + (r.phase.pct || 0) + "%.", "ok", 6000); watchLabseProgress(); }
+        else if (phase === "loading") { toast("LaBSE đang được nạp vào bộ nhớ — vài giây nữa xong.", "ok", 6000); watchLabseProgress(); }
+        else toast("LaBSE đã sẵn sàng hoặc đang chạy — không cần làm gì thêm.", "ok", 5000);
+      }
+    } catch (e) {
+      toast("Không gọi được API thử lại LaBSE: " + e.message, "err", 7000);
     }
   });
   $("drawerClose").addEventListener("click", closeDrawer);
@@ -2236,6 +2281,9 @@ document.addEventListener("DOMContentLoaded", () => {
       // BẢN 2.8.1 — số bản trong thanh trạng thái lấy TỪ SERVER (trước đây ghi tay
       // “bản 2.6” nên lỗi thời ngay khi nâng cấp). Fetch fail → giữ chữ “REVA” trung tính.
       if (st && st.version) $("verInfo").textContent = "bản " + String(st.version) + " · REVA";
+      // BẢN 2.10 — nếu LaBSE đang tự tải/nạp → theo dõi tiến trình cho huy hiệu.
+      const phase = st && st.labse && st.labse.native ? String(st.labse.native.phase) : "";
+      if (phase === "downloading" || phase === "loading") watchLabseProgress();
     } catch {
       $("engineText").textContent = "Động cơ cục bộ (offline)";
     }
