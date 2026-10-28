@@ -2,7 +2,7 @@
 
 > Tài liệu cho người phát triển / người muốn hiểu sâu. Nếu bạn chỉ muốn **dùng REVA**, xem [README chính](../README.md).
 
-# REVA tool (`reva-tool`) v2.8
+# REVA tool (`reva-tool`) v2.10
 
 > Tiền thân: **Cánh đôi Anh–Việt** (`canh-doi-anh-viet`) — cùng công cụ, đổi tên từ bản 2.5.
 
@@ -11,11 +11,12 @@ giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **10
 
 ```
 [reva-tool] chạy tại http://localhost:3000 (giao diện + API, tất cả cục bộ)
-[reva-tool] LaBSE (tuỳ chọn): http://127.0.0.1:3031 — chạy labse/labse_service.py để bật chế độ chính xác cao
+[reva-tool] LaBSE (native, tự tải 1 lần ~450 MB): khởi động nền — xem huy hiệu trên đầu trang
 ```
 
 ## Lịch sử bản chính
 
+- **2.10** — **[LABSE CỐT LÕI — NHÁNH `feat/labse-native`, MERGE `0ed9426`]** LaBSE từ “tuỳ chọn cần Python” thành **phần cốt lõi chạy ngay trong binary**: crate `ort` 2.0.0-rc.15 (load-dynamic, `ort::init_from` nạp động ONNX Runtime) + crate `tokenizers` 0.23 (feature `onig`) + `flate2`/`tar` (giải nén). **Tự tải 1 lần duy nhất** (HTTP Range resume + retry 6 lần, tự nối lại khi đứt): model `Xenova/LaBSE` `onnx/model_quantized.onnx` int8 ~450 MB + `tokenizer.json` ~13 MB từ huggingface.co → `data/models/labse/`; thư viện ONNX Runtime 1.31.1 từ github.com/microsoft/onnxruntime (win-x64 zip ~79 MB / linux-x64 tgz ~11 MB / osx-arm64 ~35 MB) → `data/models/ort/` — BẪY SYMLINK linux tgz đã sửa (bỏ EntryType::Link, chỉ lấy file thật >1 MB). Máy trạng thái Off → Downloading{pct} → Loading → Ready/Failed trên **thread nền không chặn server**; smoke test 2 câu trước khi Ready. `/api/model-status` thêm `labse.native` (phase/pct/detail/modelDir/ortVersion); route mới `POST /api/labse/retry` (chỉ chạy khi Failed/Off). UI: huy hiệu động cơ hiển thị tiến trình % + nút thử lại + poll 1,5 s tự ngừng. Env: `REVA_LABSE_URL` (ưu tiên HTTP cũ nếu đặt tường minh), `REVA_LABSE_AUTO=0` (tắt tự tải), `REVA_LABSE_MAXLEN` (mặc định 256). Embed: encode_batch truncate/pad → tensor i64 → output ưu tiên `embeddings` → `pooler_output` → mean-pool `last_hidden_state` theo attention mask; L2-chuẩn hoá; chia lô 16. Scoring giữ nguyên `max(lexical, 0.4·lexical + 0.6·LaBSE)`. Windows build qua cargo-zigbuild (binary 7,97 MB so với 4,8 MB bản trước — ort+tokenizers tĩnh). Selftest 56→**58** (57: status_json đủ khóa mọi pha + embed Err tiếng Việt khi chưa ready; 58: vector L2 thật cùng chiều ≥64 + L2≈1). KHÔNG cần Python nữa; script build-and-run rút từ 5 bước xuống 3 bước.
 - **2.9 (UI)** — **[DỌN UI CHUYÊN NGHIỆP 2026-10-19 — nhánh `feat/professional-ui`]** làm lại toàn bộ lớp trình bày `static/index.html` **không đụng logic**: (1) hệ **biểu tượng SVG sprite** (26 symbol, vẽ dòng — 0 phụ thuộc mạng, đúng nguyên tắc cục bộ) thay toàn bộ emoji trong nút/tiêu đề/toast; (2) **bộ token màu 2 giao diện sáng/tối** — giữ nguyên MỌI tên biến cũ (`--teal`, `--muted`…) vì mã JS nhúng `var(…)` trực tiếp; dark theo `prefers-color-scheme` lần đầu + nút đổi + lưu `localStorage("reva-theme")`, áp TRƯỚC khi vẽ (script đầu `<head>`, không nhấp nháy) + `color-scheme` cho điều khiển gốc; (3) nút chuẩn hoá 3 cỡ (34/40/28 px) + `spin`/`bico` hoán đổi khi bận; (4) hàng kết quả sắc nhẹ phẳng (viền trái 3 px + tint 3–4% thay gradient), grip chấm hiện khi rê khối, `#` thay nhãn ROW; (5) modal/drawer/toast/busy làm lại (icon đầu đề, nút đóng icon, toast có huy hiệu icon theo loại); (6) hỗ trợ `prefers-reduced-motion`, focus ring thống nhất 2 px, `scrollbar-width:thin`. **Kiểm**: agent-browser đầy đủ (ghép bài mẫu → 10 hàng/19 khối; lọc chip; tìm "VinFast" 1 hàng/2 khối hit; thay "Hà Nội"→"HANOI" 2 chỗ + Ctrl+Z nguyên xi; stats/QA/replace modal; dark toggle + đo contrast chip active 14.84:1; mobile 390 px không tràn ngang; console + page errors sạch), selftest **56/56** giữ nguyên, `cargo fmt` sạch, clippy 0 cảnh báo mới. Hợp đồng DOM giữ nguyên 79/79 ID + mọi class/data-attr JS dùng — 0 thay đổi API, 0 thay đổi định dạng phiên.
 - **2.9** — **[QoL 2026-10-19, nghiên cứu nhu cầu biên dịch viên — `docs/PLAN-QOL-2026-10-19.md`]** hai tính năng theo kết quả nghiên cứu: **📊 Thống kê số từ** (tính năng #2 điểm 7,7/10): nút `📊 Số từ` trên thanh công cụ + `GET /api/sessions/{id}/stats` (thuần đọc, 0 snapshot, 0 mạng) đếm **số từ / ký tự / đoạn mỗi phía** — căn cứ tính giá theo **số từ nguồn** (chuẩn ngành); kèm bảng theo 4 trạng thái, phân vùng cặp-đủ-hai-phía / chỉ-Anh / chỉ-Việt, nút **📋 Sao chép** chuỗi tiếng Việt cho thư báo giá; **số từ hiện trực tiếp trên đầu ô nhập ngay khi dán** (client-side, trước khi ghép). Quy ước công khai: từ = tách theo khoảng trắng Unicode (NBSP là khoảng trắng; emoji ZWJ = 1 từ); ký tự = scalar value **sau chuẩn hoá NFC** (crate `unicode-normalization` sẵn có cho fold — 0 phụ thuộc mới; NFD/NFC cùng con số). **🔍 Bảng soát lỗi QA** (tính năng #1 điểm 7,4/10 — `src/qa.rs`): nút `🔍 Soát lỗi` + `GET /api/sessions/{id}/qa` (thuần đọc, 0 snapshot, 0 mạng, KHÔNG đụng embedder — rescan cos=1 không đổi báo cáo) chạy **8 kiểm theo danh mục chuẩn ngành ApSIC Xbench**: `numeric-mismatch` (chuẩn hoá số THEO PHÍA: EN `1,234.5`≡VI `1.234,5`; bắt dời thập phân `3.5`→`35`; số sau chữ "tháng" được tha KHI phía Anh có tên tháng — "March 12" → "12 tháng 3" là chuyển ngữ đúng), `target-same-as-source` (bỏ dịch), `length-outlier` (EN ≥ 40 ký tự mà tỉ lệ VI/EN ngoài 0.35–2.5), `double-space`, `unpaired-symbol` (cặp `() [] {} “” ‘’ «»` + `"` lẻ; `'` KHÔNG kiểm vì "don't"), `alluppercase-mismatch` (NASA mất), `missing-diacritics` (bảng ~17 từ KHÔNG nhập nhằng — cua/lam là từ hợp lệ), `nfd-mixed`. Mức Lỗi/Cần xem/Ghi chú; bấm mục → cuộn tới hàng + nháy viền (tự mở lại lọc chip/“Hiện thêm” nếu hàng đang ẩn); KHÔNG tự sửa gì; hàng một phía: kiểm 4/5/6/8 chạy phía có mặt, kiểm 1/2/3 cần đủ hai phía (audit #2: kiểm số liệu trên hàng một phía chỉ tạo báo oan thuần tuý sau khi tách cặp). **🔎 Tìm / lọc / thay thế hàng loạt** (tính năng #3 điểm 6,1/10): ô **Tìm trong bảng** trên thanh công cụ — lọc tức thì thuần client-side (không phân biệt hoa thường, tô nền vàng khối chứa chuỗi, đếm n/tổng hàng, nút ✕ xoá lọc); nút **✏️ Thay thế** + `POST /api/sessions/{id}/replace` `{find, replace, column: vi|en, caseSensitive}` — thay trong MỌI khối của cột chọn, **MỘT snapshot hoàn tác cho cả lô** (Ctrl+Z một nhấn trả nguyên xi — kể cả tài liệu gốc đồng bộ lại qua `sync_docs_from_rows`); tìm/thay theo KÝ TỰ (an toàn UTF-8: dấu Việt/emoji ZWJ; tìm NFC trong chuỗi NFD không khớp — quy ước công khai), không-phân-biệt-hoa-thường qua bản đồ chữ-thường↔ký-tự-gốc (0 phụ thuộc mới, không ReDoS vì KHÔNG regex — ghi ROADMAP); hàng bị thay mất điểm cũ (mời Rescan); 0 chỗ khớp → 200 changed:0 KHÔNG snapshot; rỗng-thuần/tìm==thay/cột lạ → 400 tiếng Việt; chuỗi chỉ toàn khoảng trắng ĐƯỢC thay (sửa được lỗi "2 dấu cách" — [AUDIT #2]). Selftest 41→45 (thống kê) →51 (QA) →**56** (+5 bài: 3 chỗ đúng nội dung + sync tài liệu gốc + 1 snapshot + undo/redo nguyên xi; hoa thường The/the/THE + chọn cột; đầu vào xấu; lô 10 chỗ/6 khối + hàng gộp 2 khối; biên Unicode + 10.000 hàng ~27 ms ≪ 1 s).
 - **2.8.1** — **[SỬA SAU PHÁT HÀNH 2026-10-19, người dùng báo từ máy thật]** (chi tiết `docs/AUDIT-LOG.md` — phụ lục): selftest bài 28 & 41 phụ thuộc môi trường — trên máy CÓ LaBSE chạy thật → **39/41** (điểm rescan bị hoà trộn LaBSE `0.904` ≠ `0.760` thuần từ vựng; `labse_used=true` sai kỳ vọng) → tách `rescan_row_with`/`rescan_all_with` TIÊM nguồn cosine: bài kiểm chạy xác định với `None` (không LaBSE) lẫn `Some(1.0)` (LaBSE hoàn hảo) — đạt trên MỌI máy. Thanh trạng thái UI lấy số bản TỪ SERVER (`bản 2.8.1 · REVA`, hết ghi tay "bản 2.6" lỗi thời); UA tải URL từ `CARGO_PKG_VERSION` (hết "reva-tool/2.7" cũ). Selftest vẫn 41 bài (2 bài hermetic hoá + kiểm mạnh hơn: đường hoà trộn qua rescan thật).
@@ -71,7 +72,7 @@ giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **10
   ký tự = scalar value **sau chuẩn hoá NFC** — NFD (macOS) và NFC (Windows) đếm ra cùng con số. Thuần đọc.
 - **🔍 Bảng soát lỗi QA (bản 2.9)**: 8 kiểm theo danh mục chuẩn ngành ApSIC Xbench — sai số liệu (chuẩn hoá THEO PHÍA, bắt dời thập phân, tha số tháng 1..=12 khi EN có tên tháng — riêng "may" chỉ tính khi viết hoa), bỏ dịch (VI == EN), độ dài bất thường (ngoài 0.35–2.5 khi EN ≥ 40 ký tự), khoảng trắng thừa, ngoặc không cân, tên riêng viết hoa lệch, có thể thiếu dấu tiếng Việt (bảng từ không nhập nhằng), Unicode NFD lẫn. Mức **Lỗi / Cần xem / Ghi chú**; bấm mục → cuộn tới hàng + nháy viền; hàng một phía: kiểm 4/5/6/8 chạy phía có mặt, kiểm 1/2/3 cần đủ hai phía (audit #2: số liệu trên hàng một phía chỉ báo oan). Thuần đọc tuyệt đối: không snapshot, không đổi `updated_at`, **không đụng embedder** (rescan cos=1 không đổi báo cáo — kiểm trong selftest).
 - **🔎 Tìm / lọc / thay thế hàng loạt (bản 2.9)**: ô **Tìm trong bảng** lọc tức thì (client-side, không phân biệt hoa thường, tô nền vàng khối khớp, đếm n/tổng hàng); **✏️ Thay thế** áp MỘT lần cho cả cột (vi/en, tuỳ chọn hoa thường) — **1 snapshot hoàn tác cả lô** (Ctrl+Z trả nguyên xi kể cả tài liệu gốc); tìm theo ký tự an toàn UTF-8 (0 phụ thuộc mới, không regex → không ReDoS); 0 khớp không đổi gì; đầu vào xấu → 400 tiếng Việt.
-- **Tự kiểm tra (selftest)**: 56 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
+- **Tự kiểm tra (selftest)**: 58 bài kiểm nội bộ, gồm 4 bài **hồi quy** đúng 4 lỗi từng gặp
   (panic `index 61`, "không ghép được bài thứ hai", "nút Ghép bị mờ sau khi tải URL", "tải URL mất mục `<li>`"),
   1 bài **tích hợp LaBSE**, 4 bài **gộp hàng** (bản 2.4), 5 bài **mô hình khối** (bản 2.5),
   **3 bài bộ lọc chrom** (bản 2.6): mega-menu/ribbon/modal/comment theo class (tuoitre.vn),
@@ -82,7 +83,8 @@ giao diện + API + bộ ghép nằm trong 1 file binary tự build, chạy **10
 
 ## LaBSE — mấu chốt để ghép chính xác
 
-LaBSE là model nhúng câu đa ngôn ngữ của Google (chạy cục bộ qua `sentence-transformers`).
+LaBSE là model nhúng câu đa ngôn ngữ của Google. Từ bản **2.10** LaBSE chạy **ngay trong binary**
+(crate `ort` nạp động ONNX Runtime + crate `tokenizers`) — không cần Python, không cần cài gì thêm.
 Bộ từ vựng giỏi bài báo giàu số/tên riêng; LaBSE giỏi **mọi văn bản** vì "hiểu nghĩa" câu.
 
 - **Khi có LaBSE**: điểm mỗi cặp = `max(điểm_từ_vựng, 0.4×điểm_từ_vựng + 0.6×tin_cậy_LaBSE)` với
@@ -90,21 +92,25 @@ Bộ từ vựng giỏi bài báo giàu số/tên riêng; LaBSE giỏi **mọi v
   cặp "lược/gộp đoạn" ~0.5–0.65, cặp cùng chủ đề nhưng không dịch ~0.35–0.55.
   Nguyên tắc **"chỉ nâng, không hạ"**: điểm từ vựng là sàn — bài dịch lược bớt vẫn ghép được như thường,
   còn cặp dịch đúng được nâng lên "Tự khớp" và DP gán đúng cặp nhờ khoảng cách cosine rõ rệt.
-- **Khi không có LaBSE** (không cài Python, không mạng…): app tự fallback về thuần từ vựng —
-  huy hiệu trên đầu báo "Chỉ từ vựng — chưa bật LaBSE" (chấm hổ phách). Ghép vẫn chạy 100%;
-  nút **Rescan** cũng vẫn chấm được bằng từ vựng (giao diện báo rõ "từ vựng").
-- Giao thức: `labse/labse_service.py` lắng nghe tại `127.0.0.1:3031`;
-  `GET /health`, `POST /embed {"texts":[…]}` → `{"embeddings":[[…],…]}` (đã chuẩn hoá L2).
-  Đổi địa chỉ bằng biến môi trường `REVA_LABSE_URL` (tên cũ `CANH_DOI_LABSE_URL` vẫn được chấp nhận).
-- **Không bao giờ tải lại model (bản 2.6)**: model nằm trong **`labse/model/`** (do `labse/download_model.py`
-  tạo đúng 1 lần; đổi vị trí bằng biến `REVA_LABSE_MODEL_DIR`). Dịch vụ nạp từ thư mục này ở **chế độ
-  offline** (`HF_HUB_OFFLINE=1`) — không phụ thuộc cache HuggingFace, không chạm mạng, cập nhật
-  mã nguồn/build lại không ảnh hưởng gì. Xoá `~/.cache/huggingface` cũng không mất model.
+- **Khi không có LaBSE** (chưa tải xong, không mạng, tải lỗi): app tự fallback về thuần từ vựng —
+  huy hiệu trên đầu báo "Chỉ từ vựng" (chấm hổ phách) kèm tiến trình % hoặc nút thử lại.
+  Ghép vẫn chạy 100%; nút **Rescan** cũng vẫn chấm được bằng từ vựng (giao diện báo rõ "từ vựng").
+- **Native in-process (bản 2.10)**: `src/labse_native.rs` — tự tải model ONNX int8 (`Xenova/LaBSE`,
+  ~450 MB) + `tokenizer.json` (~13 MB) + thư viện ONNX Runtime 1.31.1 vào `data/models/`
+  (đúng 1 lần, HTTP Range resume, retry 6 lần); nạp trên **thread nền**, smoke test 2 câu rồi mới Ready.
+  Embed: truncate/pad 256 token → tensor i64 → output ưu tiên `embeddings` → `pooler_output` →
+  mean-pool `last_hidden_state` theo attention mask; **L2-chuẩn hoá**; chia lô 16.
+  Env: `REVA_LABSE_AUTO=0` tắt tự tải; `REVA_LABSE_MAXLEN` đổi số token tối đa (16..=512);
+  `POST /api/labse/retry` tải lại khi Failed; `/api/model-status` có `labse.native`.
+- **Dịch vụ HTTP kiểu cũ vẫn được hỗ trợ** (ai đã có `labse/labse_service.py`): đặt
+  `REVA_LABSE_URL` (vd `http://127.0.0.1:3031`) — khi biến này được đặt TƯỜNG MINH, app dùng
+  đường HTTP đó và không tự tải native (tên cũ `CANH_DOI_LABSE_URL` vẫn được chấp nhận).
+  Giao thức: `GET /health`, `POST /embed {"texts":[…]}` → `{"embeddings":[[…],…]}` (đã chuẩn hoá L2).
+- **Không bao giờ tải lại model**: model nằm trong **`data/models/labse/`** — build lại mã nguồn bao
+  nhiêu lần cũng không chạm mạng lại; xoá thư mục này nếu muốn tải lại từ đầu.
 - Mỗi phiên lưu kèm `engine` (`lexical` / `lexical+labse`) — mở lại phiên cũ vẫn thấy đúng động cơ đã dùng.
 
-**Lưu ý Linux không có card NVIDIA**: `pip install sentence-transformers` kéo bản PyTorch kèm CUDA (~2.5 GB).
-Muốn gọn hơn, chạy trước `labse-venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu`
-rồi chạy lại script — LaBSE chạy CPU được, chỉ chậm hơn.
+*(Từ bản 2.10 không còn lưu ý cài PyTorch/CUDA: LaBSE native chạy CPU qua ONNX Runtime — không Python, không GPU.)*
 
 ## Build từ nguồn (thủ công, không dùng script)
 
@@ -165,7 +171,7 @@ en-vi-align-rust/
 │   ├── session.rs             # phiên: tạo / mở / cập nhật / GỘP HÀNG / TÁCH / move_block / UNDO-REDO / rescan_row / THAY THẾ HÀNG LOẠT (bản 2.9) / NHẢ PHIÊN
 │   ├── exporter.rs            # xuất TSV / Moses / JSON / CSV / HTML / XLIFF / Excel .xlsx (tô màu ô) / TMX 1.2 với chữ `none` nguyên văn (hỗ trợ nhiều khối/hàng)
 │   ├── fetcher.rs             # tải URL + trích HTML
-│   ├── selftest.rs            # 56 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối + xlsx màu + 4 audit + TMX + rescan-all + 4 thống kê số từ + 6 soát lỗi QA + 5 tìm/thay thế)
+│   ├── selftest.rs            # 58 bài tự kiểm (4 hồi quy + LaBSE + xuất mới + gộp hàng + mô hình khối + xlsx màu + 4 audit + TMX + rescan-all + 4 thống kê số từ + 6 soát lỗi QA + 5 tìm/thay thế + 2 LaBSE native)
 │   ├── lexicon.rs             # từ điển Anh→Việt + danh sách từ phổ biến
 │   ├── stats.rs               # BẢN 2.9 — thống kê số từ/ký tự/đoạn (thuần đọc, đếm sau NFC)
 │   ├── qa.rs                  # BẢN 2.9 — bảng soát lỗi QA 8 kiểm (thuần đọc, không đụng embedder)
@@ -194,7 +200,7 @@ en-vi-align-rust/
 | POST | `/api/sessions/{id}/redo` | **Làm lại** bước vừa hoàn tác · bản 2.5 |
 | POST | `/api/export` | Xuất file (`tsv` / `moses` / `json` / `csv` / `html` / `xliff` / `xlsx` / `tmx`) |
 | POST | `/api/fetch-url` | Tải bài từ URL |
-| GET | `/api/selftest` | Chạy 56 bài tự kiểm |
+| GET | `/api/selftest` | Chạy 58 bài tự kiểm |
 | GET | `/api/model-status` | Trạng thái động cơ + LaBSE (`labse.ready`, `labse.url`) |
 | GET | `/api/health` | Kiểm tra sống |
 
@@ -210,7 +216,7 @@ en-vi-align-rust/
 5. Khi xuất, phía thiếu ghi đúng chữ **`none`** (nguyên văn) và **không bỏ sót đoạn nào**.
 
 (LaBSE chỉ đổi **điểm gốc** trước khi vào DP — 5 bất biến và toàn bộ quy ước trạng thái giữ nguyên, được kiểm lại
-trong selftest 56 bài kể cả khi có LaBSE. Rescan bản 2.5 dùng lại đúng lõi chấm điểm của bộ ghép — không thêm thuật toán mới.)
+trong selftest 58 bài kể cả khi có LaBSE. Rescan bản 2.5 dùng lại đúng lõi chấm điểm của bộ ghép — không thêm thuật toán mới.)
 
 ## Sửa lỗi so với các bản trước
 

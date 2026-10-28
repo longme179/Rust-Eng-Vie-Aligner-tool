@@ -1079,7 +1079,18 @@ async fn main() {
         println!("[reva-tool] chú ý: đang lắng nghe trên {} — máy khác trong mạng có thể truy cập. Muốn chỉ mình mình dùng thì bỏ biến REVA_BIND rồi chạy lại.", bind_host);
     }
     println!("[reva-tool] thư mục dữ liệu: {}", data_dir.display());
-    println!("[reva-tool] LaBSE (tuỳ chọn): {} — chạy labse/labse_service.py để bật chế độ chính xác cao", embedder::labse_url());
+    // Banner LaBSE: đúng theo chế độ thật — HTTP ngoài (REVA_LABSE_URL đặt tường minh)
+    // hay native in-process (tự tải 1 lần duy nhất, chạy nền không chặn server).
+    let labse_http_set =
+        std::env::var("REVA_LABSE_URL").is_ok() || std::env::var("CANH_DOI_LABSE_URL").is_ok();
+    if labse_http_set {
+        println!(
+            "[reva-tool] LaBSE (HTTP ngoài): {} — dùng dịch vụ riêng theo biến REVA_LABSE_URL",
+            embedder::labse_url()
+        );
+    } else {
+        println!("[reva-tool] LaBSE (native, phần cốt lõi): tự tải model ~450 MB đúng 1 lần rồi nạp chạy nền — xem huy hiệu trên đầu trang");
+    }
     println!("[reva-tool] nhấn Ctrl+C để dừng");
 
     if let Err(e) = axum::serve(listener, app)
