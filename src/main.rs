@@ -88,6 +88,9 @@ async fn api_model_status(State(state): State<SharedState>) -> Response {
         .get("phase")
         .and_then(|v| v.as_str())
         .unwrap_or("off");
+    // BẢN 2.10.1 — đĩa chỉ đọc (Vercel/serverless): model lưu tạm /tmp → nói đúng
+    // hệ quả "khởi động lại sẽ tải lại" thay vì hứa "1 lần duy nhất".
+    let native_tmp = native.get("cache").and_then(|v| v.as_str()) == Some("tmp");
     let engine = if labse_ready {
         "lexical+labse"
     } else {
@@ -96,7 +99,11 @@ async fn api_model_status(State(state): State<SharedState>) -> Response {
     let mode = if labse_ready {
         "Từ vựng + LaBSE — chế độ chính xác cao"
     } else if native_phase == "downloading" {
-        "Đang tải LaBSE (phần cốt lõi, 1 lần duy nhất) — tạm dùng bộ từ vựng"
+        if native_tmp {
+            "Đang tải LaBSE vào đĩa tạm /tmp (đĩa hệ thống chỉ đọc — mỗi lần khởi động lại sẽ tải lại) — tạm dùng bộ từ vựng"
+        } else {
+            "Đang tải LaBSE (phần cốt lõi, 1 lần duy nhất) — tạm dùng bộ từ vựng"
+        }
     } else if native_phase == "loading" {
         "Đang nạp LaBSE vào bộ nhớ — tạm dùng bộ từ vựng"
     } else if native_phase == "failed" {
@@ -125,7 +132,8 @@ async fn api_labse_retry() -> Response {
     match phase {
         labse_native::Phase::Failed(_) | labse_native::Phase::Off => {
             labse_native::retry();
-            ok_json(json!({ "ok": true, "started": true }))
+            // Kèm phase (gồm cache: "tmp"/"env"/"data") để UI nói đúng nơi lưu model.
+            ok_json(json!({ "ok": true, "started": true, "phase": labse_native::status_json() }))
         }
         _ => ok_json(json!({ "ok": true, "started": false, "phase": labse_native::status_json() })),
     }

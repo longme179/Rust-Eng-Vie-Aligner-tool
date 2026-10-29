@@ -16,6 +16,10 @@
 //!   REVA_LABSE_URL    — nếu đặt tường minh: giữ đường HTTP cũ (service Python riêng), không tự tải
 //!   REVA_LABSE_AUTO=0 — tắt tự tải (gọi tay / máy không có mạng)
 //!   REVA_LABSE_MAXLEN — số token tối đa mỗi đoạn (mặc định 256, 16..=512)
+//!   REVA_LABSE_DIR    — thư mục GỐC chứa model (labse/ + ort/); mặc định <data>/models.
+//!                       BẢN 2.10.1: đĩa chỉ đọc (Vercel/serverless, Docker ro) → REVA tự trượt
+//!                       xuống thư mục tạm của hệ điều hành (/tmp) thay vì chết với
+//!                       "Read-only file system (os error 30)".
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -91,6 +95,7 @@ pub fn set_data_dir(d: PathBuf) {
     if let Ok(mut g) = DATA_DIR.lock() {
         *g = Some(d);
     }
+    invalidate_root();
 }
 
 fn data_dir() -> PathBuf {
@@ -101,12 +106,91 @@ fn data_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("data"))
 }
 
+// ========================= BẢN 2.10.1: chọn NƠI LƯU model =========================
+//
+// Vercel/serverless chạy binary trên hệ thống tệp CHỈ ĐỌC (chỉ /tmp được ghi):
+// bản 2.10.0 chết ngay ở "tạo thư mục model: Read-only file system (os error 30)".
+// Giờ REVA tự chọn nơi lưu, theo thứ tự:
+//   1. REVA_LABSE_DIR (env tường minh) — nếu đã đủ file (chỉ cần đọc) hoặc ghi được;
+//   2. <data>/models (mặc định)        — nếu đã đủ file hoặc ghi được;
+//   3. thư mục tạm của hệ điều hành     — đĩa chỉ đọc: LaBSE VẪN CHẠY, nhưng mỗi lần
+//      khởi động lại server sẽ tải lại model — status_json báo rõ cache:"tmp" + note.
+
+static ROOT: Mutex<Option<(PathBuf, u8)>> = Mutex::new(None);
+
+fn env_path(key: &str) -> Option<PathBuf> {
+    std::env::var(key)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Đã đủ 3 file model hợp lệ ở gốc này? (chỉ cần QUYỀN ĐỌC — không cần ghi)
+fn root_complete(root: &Path) -> bool {
+    let model = root.join("labse").join("model.onnx");
+    let tok = root.join("labse").join("tokenizer.json");
+    let dylib = root.join("ort").join(dylib_name());
+    model.is_file()
+        && std::fs::metadata(&model)
+            .map(|m| m.len() > 100 * 1024 * 1024)
+            .unwrap_or(false)
+        && tok.is_file()
+        && dylib.is_file()
+        && std::fs::metadata(&dylib)
+            .map(|m| m.len() > 1024 * 1024)
+            .unwrap_or(false)
+}
+
+fn root_writable(root: &Path) -> bool {
+    if std::fs::create_dir_all(root).is_err() {
+        return false;
+    }
+    let probe = root.join(".reva-ghi-duoc");
+    let ok = std::fs::write(&probe, b"ok").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
+/// (gốc, nguồn) — nguồn: 0 = <data>/models · 1 = REVA_LABSE_DIR · 2 = thư mục tạm.
+fn resolve_root() -> (PathBuf, u8) {
+    if let Some(p) = env_path("REVA_LABSE_DIR") {
+        if root_complete(&p) || root_writable(&p) {
+            return (p, 1);
+        }
+    }
+    let d = data_dir().join("models");
+    if root_complete(&d) || root_writable(&d) {
+        return (d, 0);
+    }
+    // Đĩa chỉ đọc (Vercel/serverless, Docker read-only…) → thư mục tạm.
+    (std::env::temp_dir().join("reva-models"), 2)
+}
+
+/// Gốc model hiện dùng (cache trong tiến trình; đổi khi set_data_dir / retry).
+fn root() -> (PathBuf, u8) {
+    if let Some(r) = ROOT.lock().ok().and_then(|g| g.clone()) {
+        return r;
+    }
+    let r = resolve_root();
+    if let Ok(mut g) = ROOT.lock() {
+        *g = Some(r.clone());
+    }
+    r
+}
+
+fn invalidate_root() {
+    if let Ok(mut g) = ROOT.lock() {
+        *g = None;
+    }
+}
+
 pub fn labse_dir() -> PathBuf {
-    data_dir().join("models").join("labse")
+    root().0.join("labse")
 }
 
 fn ort_dir() -> PathBuf {
-    data_dir().join("models").join("ort")
+    root().0.join("ort")
 }
 
 pub fn phase() -> Phase {
@@ -136,14 +220,29 @@ pub fn status_json() -> serde_json::Value {
         Phase::Ready => ("ready", 100u8, None),
         Phase::Failed(e) => ("failed", 0u8, Some(e.clone())),
     };
-    serde_json::json!({
+    let (root_path, src) = root();
+    let cache = match src {
+        1 => "env",
+        2 => "tmp",
+        _ => "data",
+    };
+    let mut v = serde_json::json!({
         "phase": state,
         "pct": pct,
         "detail": detail,
-        "modelDir": labse_dir().to_string_lossy(),
+        "modelDir": root_path.join("labse").to_string_lossy(),
         "model": "Xenova/LaBSE (ONNX int8)",
         "ortVersion": ORT_VER,
-    })
+        "cache": cache,
+    });
+    if src == 2 {
+        v["note"] = serde_json::json!(
+            "Đĩa của thư mục dữ liệu CHỈ ĐỌC — model lưu tạm trong thư mục tạm của hệ điều hành: \
+             mỗi lần khởi động lại server sẽ TẢI LẠI model (~450 MB). Trên Vercel/serverless \
+             nên dùng bản web (nhánh 'vercel') hoặc trỏ REVA_LABSE_URL sang dịch vụ nhúng riêng."
+        );
+    }
+    v
 }
 
 // ========================= Tải file (resume được) =========================
@@ -153,6 +252,29 @@ fn http_agent() -> ureq::Agent {
         .timeout(Duration::from_secs(900))
         .redirects(8)
         .build()
+}
+
+/// Diễn giải lỗi đĩa thành tiếng Việt người dùng cuối hiểu được (bản 2.10.1 —
+/// trước đây chỉ in "Read-only file system (os error 30)" khô khan).
+fn explain_io(e: &std::io::Error) -> String {
+    let s = e.to_string();
+    // EROFS = 30 trên Linux/macOS; một số nền tảng chỉ có chữ trong message.
+    let ro = e.raw_os_error() == Some(30) || s.contains("Read-only file system");
+    if ro {
+        return format!(
+            "{s} — hệ thống tệp chỉ đọc: server không ghi được vào thư mục dữ liệu \
+             (Vercel/serverless chỉ ghi được trong /tmp). REVA sẽ tự dùng thư mục tạm, \
+             hoặc đặt REVA_LABSE_DIR tới thư mục ghi được"
+        );
+    }
+    // ENOSPC = 28 (Linux/macOS) · ERROR_DISK_FULL = 112 (Windows).
+    let full = e.raw_os_error() == Some(28)
+        || e.raw_os_error() == Some(112)
+        || s.contains("No space left");
+    if full {
+        return format!("{s} — hết chỗ chứa: model LaBSE cần khoảng 500 MB trống");
+    }
+    s
 }
 
 fn download_file(url: &str, dest: &Path, label: &str) -> Result<(), String> {
@@ -188,7 +310,7 @@ fn download_file(url: &str, dest: &Path, label: &str) -> Result<(), String> {
             .append(append)
             .truncate(!append)
             .open(&part)
-            .map_err(|e| format!("mở file tạm: {}", e))?;
+            .map_err(|e| format!("mở file tạm: {}", explain_io(&e)))?;
         let mut since_update = 0u64;
         loop {
             let n = reader
@@ -198,7 +320,7 @@ fn download_file(url: &str, dest: &Path, label: &str) -> Result<(), String> {
                 break;
             }
             out.write_all(&buf[..n])
-                .map_err(|e| format!("ghi đĩa: {}", e))?;
+                .map_err(|e| format!("ghi đĩa: {}", explain_io(&e)))?;
             downloaded += n as u64;
             since_update += n as u64;
             if since_update >= 1024 * 1024 {
@@ -225,7 +347,7 @@ fn download_file(url: &str, dest: &Path, label: &str) -> Result<(), String> {
             std::thread::sleep(Duration::from_secs(2));
             continue;
         }
-        std::fs::rename(&part, dest).map_err(|e| format!("lưu {}: {}", label, e))?;
+        std::fs::rename(&part, dest).map_err(|e| format!("lưu {}: {}", label, explain_io(&e)))?;
         return Ok(());
     }
 }
@@ -531,8 +653,18 @@ fn files_ok() -> Option<(PathBuf, PathBuf, PathBuf)> {
 }
 
 fn install_files() -> Result<(), String> {
-    std::fs::create_dir_all(labse_dir()).map_err(|e| format!("tạo thư mục model: {}", e))?;
-    std::fs::create_dir_all(ort_dir()).map_err(|e| format!("tạo thư mục ORT: {}", e))?;
+    let (root_path, src) = root();
+    if src == 2 {
+        // Đĩa chỉ đọc (Vercel/serverless…) — nói rõ nơi lưu + hệ quả cho log/banner.
+        println!(
+            "[reva-tool] LaBSE: đĩa dữ liệu chỉ đọc — lưu model vào thư mục tạm {} (mỗi lần khởi động lại sẽ tải lại ~450 MB)",
+            root_path.display()
+        );
+    }
+    std::fs::create_dir_all(labse_dir())
+        .map_err(|e| format!("tạo thư mục model: {}", explain_io(&e)))?;
+    std::fs::create_dir_all(ort_dir())
+        .map_err(|e| format!("tạo thư mục ORT: {}", explain_io(&e)))?;
 
     let model = labse_dir().join("model.onnx");
     let tok = labse_dir().join("tokenizer.json");
@@ -643,6 +775,8 @@ pub fn bootstrap() {
 /// Thử lại từ đầu (nút trên UI khi Failed/Off).
 pub fn retry() {
     if matches!(phase(), Phase::Failed(_)) || phase() == Phase::Off {
+        // Có thể người dùng vừa sửa quyền/nối đĩa — chọn lại nơi lưu model.
+        invalidate_root();
         std::thread::spawn(bootstrap_worker);
     }
 }

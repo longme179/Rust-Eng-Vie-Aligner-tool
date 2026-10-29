@@ -964,6 +964,10 @@ pub fn derive_title(english: &[String], vietnamese: &[String]) -> String {
 
 pub struct SessionStore {
     dir: PathBuf,
+    /// BẢN 2.10.1 — đĩa chỉ đọc (Vercel/serverless, Docker ro): phiên chỉ sống
+    /// trong BỘ NHỚ (mất khi khởi động lại) thay vì làm chết /api/align với
+    /// "Không lưu được phiên: Read-only file system".
+    in_memory: bool,
     sessions: Mutex<HashMap<String, Session>>,
 }
 
@@ -971,6 +975,18 @@ impl SessionStore {
     /// Khởi tạo store; nạp các phiên cũ từ đĩa (nếu có).
     pub fn open(dir: PathBuf) -> SessionStore {
         let _ = std::fs::create_dir_all(&dir);
+        // Thăm dò khả năng ghi: không ghi được → chế độ chỉ-bộ-nhớ.
+        let writable = {
+            let probe = dir.join(".reva-ghi-duoc");
+            let ok = std::fs::write(&probe, b"ok").is_ok();
+            let _ = std::fs::remove_file(&probe);
+            ok
+        };
+        if !writable {
+            println!(
+                "[reva-tool] thư mục phiên không ghi được (đĩa chỉ đọc?) — phiên làm việc sẽ chỉ nằm trong BỘ NHỚ, mất khi khởi động lại"
+            );
+        }
         let mut map: HashMap<String, Session> = HashMap::new();
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for e in entries.flatten() {
@@ -987,6 +1003,7 @@ impl SessionStore {
         }
         SessionStore {
             dir,
+            in_memory: !writable,
             sessions: Mutex::new(map),
         }
     }
@@ -1063,6 +1080,11 @@ impl SessionStore {
     }
 
     fn persist(&self, s: &Session) -> std::io::Result<()> {
+        if self.in_memory {
+            // Serverless/đĩa chỉ đọc: phiên giữ trong bộ nhớ là đủ (mỗi bản sao
+            // server vốn ngắn ngủi; ta không thể ghi gì ra đĩa).
+            return Ok(());
+        }
         let name = format!("{}.json", safe_id(&s.id));
         let tmp = self.dir.join(format!("{}.tmp", name));
         let fin = self.dir.join(name);

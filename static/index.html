@@ -989,7 +989,9 @@ function updateEngineBadge(st){
     badge.title = "LaBSE (engine cục bộ) đang chạy — bộ ghép đang dùng kèm LaBSE. Model nằm trong thư mục data/models — không gửi văn bản đi đâu.";
   } else if (phase === "downloading"){
     txt.textContent = "Đang tải LaBSE… " + pct + "%";
-    badge.title = "Đang tự tải model LaBSE (~450 MB, CHỈ 1 LẦN duy nhất) + thư viện chạy — xong sẽ tự nạp và dùng cho mọi lượt ghép. Trong lúc chờ, bộ từ vựng vẫn ghép bình thường.";
+    badge.title = (nat && nat.cache === "tmp")
+      ? "Đang tải model LaBSE (~450 MB) vào đĩa tạm /tmp vì đĩa hệ thống CHỈ ĐỌC (serverless) — mỗi lần khởi động lại server sẽ tải lại. Trong lúc chờ, bộ từ vựng vẫn ghép bình thường."
+      : "Đang tự tải model LaBSE (~450 MB, CHỈ 1 LẦN duy nhất) + thư viện chạy — xong sẽ tự nạp và dùng cho mọi lượt ghép. Trong lúc chờ, bộ từ vựng vẫn ghép bình thường.";
   } else if (phase === "loading"){
     txt.textContent = "Đang nạp LaBSE…";
     badge.title = "Model đã tải xong — đang nạp vào bộ nhớ (vài giây).";
@@ -2241,7 +2243,10 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const r = await api("/api/labse/retry", { method: "POST" });
       if (r && r.started){
-        toast("Đang tự tải LaBSE (model ~450 MB, chỉ 1 lần duy nhất) — huy hiệu sẽ hiện tiến trình. Bộ từ vựng vẫn ghép bình thường lúc chờ.", "ok", 9000);
+        const tmp = r && r.phase && r.phase.cache === "tmp";
+        toast(tmp
+          ? "Đang tự tải LaBSE (~450 MB) vào đĩa tạm /tmp — đĩa hệ thống chỉ đọc (serverless), nên mỗi lần khởi động lại sẽ tải lại. Bộ từ vựng vẫn ghép bình thường lúc chờ."
+          : "Đang tự tải LaBSE (model ~450 MB, chỉ 1 lần duy nhất) — huy hiệu sẽ hiện tiến trình. Bộ từ vựng vẫn ghép bình thường lúc chờ.", "ok", 9000);
         watchLabseProgress();
       } else {
         const phase = r && r.phase && r.phase.phase;
