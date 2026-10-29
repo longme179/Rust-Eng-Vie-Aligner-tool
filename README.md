@@ -6,6 +6,7 @@
 
 - 🏠 **Chạy 100% trên máy bạn** — văn bản của bạn không bị gửi lên Internet đâu cả.
 - 🧠 **LaBSE chạy sẵn trong chương trình** (bản 2.10): tự tải model ~450 MB đúng 1 lần, tự nạp ngay trong binary — không cần Python, không cần cài gì thêm.
+- 🌐 **Có bản web chạy trong trình duyệt** (nhánh `vercel`): Import-from-Git lên [Vercel](https://vercel.com) là có trang dùng chung — LaBSE vẫn chạy tại chỗ trong trình duyệt người dùng, không cần server.
 - 🖱️ **Kéo–thả từng đoạn** để sắp xếp lại; làm sai thì **Ctrl+Z hoàn tác ngay**.
 - 🌙 **Giao diện sáng/tối** (bản 2.9): bấm nút mặt trời/mặt trăng ở góc phải thanh đầu — lựa chọn được ghi nhớ trên máy bạn.
 - 🎨 **Xuất Excel tự tô màu**: <span>🟩</span> xanh = khớp · 🟨 vàng = cần soát · 🩷 hồng = không khớp.
@@ -25,6 +26,7 @@
 7. [Câu hỏi thường gặp](#7-câu-hỏi-thường-gặp)
 8. [Tính năng chính](#8-tính-năng-chính)
 9. [Cho người phát triển](#9-cho-người-phát-triển)
+10. [Deploy lên Vercel (bản web)](#10-deploy-lên-vercel-bản-web)
 
 ---
 
@@ -245,6 +247,25 @@ cargo test                 # test biên dịch — 58 bài selftest đầy đủ
 ```
 
 Đổi cổng: `PORT=1709 cargo run --release`. Đổi thư mục dữ liệu: `REVA_DATA_DIR=...`. Xem đầy đủ API + tài liệu kỹ thuật tại **[docs/README-KY-THUAT.md](docs/README-KY-THUAT.md)**.
+
+## 10. Deploy lên Vercel (bản web)
+
+Nhánh **`vercel`** chứa **REVA Web** — bản web tự chứa trong thư mục `web-src/`:
+
+1. [vercel.com](https://vercel.com) → **Add New → Project → Import Git Repository** → chọn repo này.
+2. **Root Directory**: chọn **`web-src/`** (Vercel tự nhận Next.js).
+3. **Deploy** — không cần biến môi trường, không cần database.
+
+Bản web chạy **100% trong trình duyệt người dùng** — LaBSE (cùng file ONNX int8
+~450 MB với bản desktop) tự tải đúng 1 lần rồi nằm trong **OPFS** của trình
+duyệt; thuật toán ghép là port 1:1 từ `src/aligner.rs` nên kết quả khớp bản
+desktop. Chi tiết: `web-src/README.md` và mục F của `HƯỚNG-DẪN-TRIỂN-KHAI.md`.
+
+> **Lưu ý nếu bạn định chạy bản Rust trên serverless** (đĩa chỉ đọc): từ
+> v2.10.1 REVA tự trượt xuống thư mục tạm `/tmp` cho model (huy hiệu báo rõ
+> `cache: "tmp"` + mỗi lần khởi động lại sẽ tải lại ~450 MB), phiên làm việc
+> hạ cấp sang bộ nhớ. Muốn nhẹ nhất: đặt `REVA_LABSE_AUTO=0`. Xem bảng biến môi
+> trường đầy đủ trong `HƯỚNG-DẪN-TRIỂN-KHAI.md` mục F.
 
 ## Giấy phép
 

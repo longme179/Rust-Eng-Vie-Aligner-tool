@@ -228,3 +228,35 @@ Gói nguồn và gói Windows đều kèm `SHA256SUMS.txt`. Kiểm tra:
 sha256sum -c SHA256SUMS.txt        # Linux/macOS
 certutil -hashfile reva-tool-v2.10.0-windows-x64.zip SHA256   # Windows
 ```
+
+---
+
+## F. DEPLOY LÊN VERCEL (bản web — khuyên dùng khi cần dùng chung trên mạng)
+
+**Cách đúng — dùng nhánh `vercel` (bản web tự chứa):**
+
+1. Trên [vercel.com](https://vercel.com): **Add New → Project → Import Git Repository** → chọn repo REVA.
+2. Mục **Root Directory**: chọn **`web-src/`**; Framework tự nhận **Next.js**.
+3. Bấm **Deploy** — không cần biến môi trường, không cần database.
+
+Bản web chạy **100% trong trình duyệt người dùng**: LaBSE (cùng file ONNX int8
+~450 MB với bản desktop) tự tải đúng 1 lần rồi nằm trong **OPFS** của trình
+duyệt (mở lại trang ~10 giây); thuật toán ghép port 1:1 từ `src/aligner.rs` —
+kết quả khớp bản desktop. Xem `web-src/README.md` chi tiết.
+
+**Chạy bản Rust trên serverless (Vercel/Docker đĩa chỉ đọc) — nâng cao:**
+
+Bản desktop Rust **không sinh ra cho serverless** (model 450 MB không thể nằm
+trong gói hàm; đĩa chỉ đọc). Từ v2.10.1 nếu bạn vẫn chạy được binary ở môi
+trường như vậy, REVA tự xoay:
+
+| Biến môi trường | Ý nghĩa |
+|---|---|
+| `REVA_LABSE_DIR=/tmp/reva-models` | Chỉ định thư mục gốc model ghi được |
+| *(không đặt gì)* | REVA tự chọn: `<data>/models` → nếu đĩa chỉ đọc thì **thư mục tạm /tmp** (huy hiệu ghi rõ `cache: "tmp"` + lưu ý *mỗi lần khởi động lại sẽ tải lại ~450 MB*) |
+| `REVA_LABSE_AUTO=0` | Tắt tự tải (chỉ bộ từ vựng — nhẹ nhất cho serverless) |
+| `REVA_LABSE_URL=...` | Trỏ sang dịch vụ nhúng HTTP riêng nếu có |
+
+Phiên làm việc cũng tự hạ cấp sang **bộ nhớ** khi thư mục phiên chỉ đọc (từ
+v2.10.1 — trước đây `/api/align` chết với "Không lưu được phiên: Read-only file
+system").
